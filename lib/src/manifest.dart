@@ -13,7 +13,7 @@ final _commandName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _parameterName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _environmentName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 const _reservedOptions = {'help', 'help-ai', 'json'};
-const _reservedCommands = {'doctor', 'prompt', 'version'};
+const _reservedCommands = {'doctor', 'version'};
 const operatingSystems = {'linux', 'macos', 'windows'};
 
 enum ValueType {
@@ -232,7 +232,6 @@ class Manifest {
     this.description,
     this.license,
     this.os,
-    this.systemPrompt,
     this.source,
   });
 
@@ -331,13 +330,11 @@ class Manifest {
       requirements: requirements,
       optionalRequirements: optionalRequirements,
       os: _parseOs(document['os'], 'os', where),
-      systemPrompt: _optionalString(document, 'systemPrompt', where)?.trim(),
       source: source,
     );
   }
 
   final int schemaVersion;
-  final String? systemPrompt;
   final String? source;
   final String id;
   final String name;

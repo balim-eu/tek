@@ -1,6 +1,6 @@
 import '../manifest.dart';
 import 'command_line.dart';
-import 'prompt.dart';
+import 'built_in_commands.dart';
 
 String commandAiHelp(CommandLine line, {String? guide}) {
   final command = line.command;

@@ -80,7 +80,6 @@ tek <architecture> <command> --help              Show the arguments and options 
 tek <architecture> --help-ai                     Same as Markdown for AI agents
 tek <architecture> <command> --help-ai           Same as Markdown, with the command's guide and examples
 tek <architecture> doctor                        Check the software an architecture needs
-tek <architecture> prompt <task>                 Print a prompt that starts an AI agent on a task
 tek <architecture> --version                     Show the version of an architecture
 tek registry list                                List the configured registries
 tek registry add [name] <url>                    Add or update a registry, asks for credentials if needed
@@ -92,7 +91,7 @@ tek update [--pre-release] [--check]             Update tek itself
 
 - `tek run` installs the architecture first when needed, `--no-install` only uses installed versions.
 - `doctor` exits with 1 when something required is missing.
-- `prompt` output is ready to paste into an agent, e.g. `tek tek/flutter-app prompt "Build a shop app" | pbcopy`.
+- Architectures can print prompts for AI agents, ready to paste, e.g. `tek tek/flutter-app prompt-create-app "Build a shop app" | pbcopy`.
 - Arguments after `--` are passed to the command unchanged.
 - Every command accepts `--json`.
 

@@ -9,14 +9,13 @@ import '../../install/installed_architecture.dart';
 import '../../manifest.dart';
 import '../../run/ai_help.dart';
 import '../../run/command_line.dart';
-import '../../run/prompt.dart';
+import '../../run/built_in_commands.dart';
 import '../../run/requirements.dart';
 import 'tek_command.dart';
 
 const _helpFlags = {'--help', '-h'};
 const _helpAi = '--help-ai';
 const _doctor = 'doctor';
-const _prompt = 'prompt';
 const _version = 'version';
 
 class RunCommand extends TekCommand {
@@ -62,7 +61,6 @@ class RunCommand extends TekCommand {
     if (args.first == _helpAi) return _architectureAiHelp(ref, manifest, local);
     if (args.first == '--$_version' || args.first == _version)
       return _architectureVersion(manifest, local, args.skip(1));
-    if (args.first == _prompt) return _agentPrompt(ref, manifest, local, args.skip(1).toList());
     if (args.first == _doctor) return _checkSoftware(ref, manifest, args.skip(1).toList());
 
     final command = manifest.command(args.first);
@@ -366,56 +364,6 @@ class RunCommand extends TekCommand {
           : '${style.failure} ${style.red('${missing == 1 ? '1 required program is' : '$missing required programs are'} '
               'missing or outdated.')}');
     return missing == 0 ? 0 : 1;
-  }
-
-  Future<int> _agentPrompt(
-    ArchitectureRef ref,
-    Manifest manifest,
-    InstalledArchitecture? local,
-    List<String> args,
-  ) async {
-    if (args.length == 1 && _helpFlags.contains(args.single)) {
-      output.success({
-        'architecture': manifest.id,
-        'version': '${manifest.version}',
-        'command': _prompt,
-        'usage': 'tek $ref $_prompt <task>',
-      }, (out) {
-        final style = output.style;
-        out
-          ..writeln('${style.id(manifest.id)}${style.dim('@')}${style.version('${manifest.version}')} '
-              '${style.bold(style.command(_prompt))}')
-          ..writeln('Print a prompt that starts an AI agent on a task: the system prompt of ${manifest.id}, '
-              'how to work with it, followed by the task as user prompt. Copy it into the agent.')
-          ..writeln()
-          ..writeln('${style.heading('Usage:')} tek $ref $_prompt <task>')
-          ..writeln('       tek $ref $_prompt < task.md')
-          ..writeln()
-          ..writeln(style.heading('Examples:'))
-          ..writeln('  tek $ref $_prompt "Build a shop app with a product list and a cart."')
-          ..writeln('  tek $ref $_prompt < task.md | pbcopy');
-      });
-      return 0;
-    }
-    var task = (args.isNotEmpty && args.first == '--' ? args.skip(1) : args).join(' ').trim();
-    if (task.isEmpty && !stdin.hasTerminal) task = (await stdin.transform(utf8.decoder).join()).trim();
-    if (task.isEmpty) {
-      throw TekException(
-        ErrorCodes.usage,
-        'Pass the task for the agent, e.g. tek $ref $_prompt "Build a shop app with a cart", or pipe it in.',
-        exitCode: 64,
-      );
-    }
-    final prompt = agentPrompt(manifest, '$ref', task);
-    output.success({
-      'architecture': manifest.id,
-      'version': '${manifest.version}',
-      'installed': local != null,
-      'systemPrompt': systemPrompt(manifest, '$ref'),
-      'userPrompt': task,
-      'prompt': prompt,
-    }, (out) => out.write(prompt));
-    return 0;
   }
 
   int _architectureVersion(Manifest manifest, InstalledArchitecture? local, Iterable<String> extra) {
