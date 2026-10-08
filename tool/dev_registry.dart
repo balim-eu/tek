@@ -1,26 +1,23 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:tek/src/errors.dart';
 import 'package:tek/src/host.dart';
-import 'package:tek/src/install/package_archive.dart';
+import 'package:tek/src/install/installed_architecture.dart';
 import 'package:tek/src/manifest.dart';
 import 'package:tek/src/tek_home.dart';
 
 const _ignoredFiles = {'.DS_Store', 'Thumbs.db'};
 
 class _Version {
-  _Version(this.publisher, this.name, this.version, this.files, this.executable);
+  _Version(this.publisher, this.name, this.version, this.files);
 
   final String publisher;
   final String name;
   final String version;
   final Map<String, File> files;
-  final String? executable;
 
   String get id => '$publisher/$name';
 
@@ -66,7 +63,7 @@ void main(List<String> arguments) {
     }
     final files = _packageFiles(file.parent);
     if (files.containsKey(installReceiptFile)) problems.add('$location: $installReceiptFile is reserved.');
-    versions.add(_Version(publisher, name, version, files, manifest.executable));
+    versions.add(_Version(publisher, name, version, files));
   }
   if (problems.isNotEmpty) {
     for (final problem in problems) {
@@ -82,26 +79,10 @@ void main(List<String> arguments) {
   for (final version in versions) {
     final assets = Directory(p.join(out.path, version.tag))..createSync(recursive: true);
     version.files['manifest.yaml']!.copySync(p.join(assets.path, 'manifest.yaml'));
-    final String checksum;
-    final Map<String, Object?> artifact;
-    if (version.executable == null) {
-      final package = _package(version.files);
-      checksum = sha256.convert(package).toString();
-      File(p.join(assets.path, '${version.tag}.tek')).writeAsBytesSync(package);
-      artifact = {
-        'artifact': {'url': '${version.tag}/${version.tag}.tek', 'sha256': checksum},
-      };
-    } else {
-      final name = 'run-$hostPlatform${Platform.isWindows ? '.exe' : ''}';
-      final built = _compile(version, name, cache);
-      checksum = sha256.convert(built.readAsBytesSync()).toString();
-      built.copySync(p.join(assets.path, name));
-      artifact = {
-        'artifacts': {
-          hostPlatform: {'url': '${version.tag}/$name', 'sha256': checksum},
-        },
-      };
-    }
+    final name = 'run-$hostPlatform${Platform.isWindows ? '.exe' : ''}';
+    final built = _compile(version, name, cache);
+    final checksum = sha256.convert(built.readAsBytesSync()).toString();
+    built.copySync(p.join(assets.path, name));
     final architecture = index[version.id] ??= {
       'id': version.id,
       'publisher': version.publisher,
@@ -111,7 +92,9 @@ void main(List<String> arguments) {
     (architecture['versions']! as List<Map<String, Object?>>).add({
       'version': version.version,
       'manifest': '${version.tag}/manifest.yaml',
-      ...artifact,
+      'artifacts': {
+        hostPlatform: {'url': '${version.tag}/$name', 'sha256': checksum},
+      },
     });
     if (home != null) _dropStaleInstall(TekHome(home), version, checksum);
   }
@@ -158,21 +141,6 @@ Map<String, File> _packageFiles(Directory directory) {
     files[p.posix.joinAll(p.split(p.relative(entity.path, from: directory.path)))] = entity;
   }
   return Map.fromEntries(files.entries.toList()..sort((a, b) => a.key.compareTo(b.key)));
-}
-
-Uint8List _package(Map<String, File> files) {
-  final archive = Archive();
-  for (final MapEntry(key: name, value: file) in files.entries) {
-    archive.addFile(
-      ArchiveFile.bytes(name, file.readAsBytesSync())
-        ..mode = file.statSync().mode & 0x49 != 0 ? 0x1ed : 0x1a4
-        ..lastModTime = 0
-        ..creationTime = 0
-        ..ownerId = 0
-        ..groupId = 0,
-    );
-  }
-  return Uint8List.fromList(TarEncoder().encodeBytes(archive));
 }
 
 void _dropStaleInstall(TekHome home, _Version version, String checksum) {

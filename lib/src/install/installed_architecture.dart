@@ -9,7 +9,10 @@ import '../architecture_ref.dart';
 import '../errors.dart';
 import '../manifest.dart';
 import '../tek_home.dart';
-import 'package_archive.dart';
+
+const installReceiptFile = '.tek-install.json';
+
+String get executableName => Platform.isWindows ? 'run.exe' : 'run';
 
 class InstallReceipt {
   const InstallReceipt({
@@ -72,35 +75,7 @@ class InstalledArchitecture {
 
   String get reference => '$id@$version';
 
-  String get filesDir => p.join(directory, 'files');
-
-  String get commandsDir => p.join(directory, 'commands');
-
-  String? get executable => switch (manifest.executable) {
-        final name? => p.join(directory, Platform.isWindows ? '$name.exe' : name),
-        null => null,
-      };
-
-  List<String>? commandLine(String command) {
-    final declared = manifest.commands[command];
-    if (declared == null) return null;
-    if (executable case final path?) return File(path).existsSync() ? [path] : null;
-    final run = declared.run;
-    if (run != null && manifest.runIsRelativeToCommands) {
-      return [
-        for (final token in splitCommandLine(run))
-          if (_inCommands(token) case final path?) path else token,
-      ];
-    }
-    final entry = entrypoint(command);
-    return entry == null ? null : [entry];
-  }
-
-  String? _inCommands(String token) {
-    if (token.startsWith('-')) return null;
-    final path = p.joinAll([commandsDir, ...p.posix.split(token.replaceAll(r'\', '/'))]);
-    return FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound ? null : path;
-  }
+  String get executable => p.join(directory, executableName);
 
   Future<void> verifyIntegrity() async {
     final actual = await hashDirectory(directory);
@@ -119,24 +94,6 @@ class InstalledArchitecture {
         details: {'problems': problems},
       );
     }
-  }
-
-  String? entrypoint(String command) {
-    final declared = manifest.commands[command];
-    if (declared == null) return null;
-    if (executable case final path?) return File(path).existsSync() ? path : null;
-    final candidates = declared.run != null
-        ? [declared.run!]
-        : Platform.isWindows
-            ? [
-                for (final ext in const ['.exe', '.cmd', '.bat', '.ps1', '']) 'commands/$command$ext'
-              ]
-            : ['commands/$command', 'commands/$command.sh'];
-    for (final candidate in candidates) {
-      final path = p.joinAll([directory, ...p.posix.split(candidate)]);
-      if (File(path).existsSync()) return path;
-    }
-    return null;
   }
 
   static Future<Map<String, String>> hashDirectory(String directory) async {

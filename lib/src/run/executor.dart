@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
 import '../errors.dart';
 import '../install/installed_architecture.dart';
 import '../tek_home.dart';
@@ -14,14 +12,6 @@ class CapturedRun {
 
   final int exitCode;
   final String stdout;
-}
-
-class _Invocation {
-  const _Invocation(this.executable, this.arguments, {this.runInShell = false});
-
-  final String executable;
-  final List<String> arguments;
-  final bool runInShell;
 }
 
 class Executor {
@@ -35,11 +25,11 @@ class Executor {
     List<String> args, {
     Map<String, String> environment = const {},
   }) async {
-    final invocation = await _prepare(architecture, command, args);
+    await _prepare(architecture, command);
     final process = await _start(
-      invocation,
       architecture,
       command,
+      args,
       environment,
       json: false,
       mode: ProcessStartMode.inheritStdio,
@@ -65,11 +55,11 @@ class Executor {
     List<String> args, {
     Map<String, String> environment = const {},
   }) async {
-    final invocation = await _prepare(architecture, command, args);
+    await _prepare(architecture, command);
     final process = await _start(
-      invocation,
       architecture,
       command,
+      args,
       environment,
       json: true,
       mode: ProcessStartMode.normal,
@@ -82,7 +72,7 @@ class Executor {
     return CapturedRun(exitCode, await output);
   }
 
-  Future<_Invocation> _prepare(InstalledArchitecture architecture, String command, List<String> args) async {
+  Future<void> _prepare(InstalledArchitecture architecture, String command) async {
     await architecture.verifyIntegrity();
     if (!architecture.manifest.commands.containsKey(command)) {
       final available = architecture.manifest.commands.keys.toList();
@@ -93,30 +83,12 @@ class Executor {
         details: {'available': available},
       );
     }
-    final commandLine = architecture.commandLine(command);
-    if (commandLine == null) {
-      throw TekException(
-        ErrorCodes.unsupportedPlatform,
-        '${architecture.reference} does not provide an entrypoint for "$command" on ${Platform.operatingSystem}.',
-      );
-    }
-    final [program, ...fixed] = commandLine;
-    final arguments = [...fixed, ...args];
-    if (!Platform.isWindows) return _Invocation(program, arguments);
-    final isPackageFile = p.isAbsolute(program) && File(program).existsSync();
-    return switch (p.extension(program).toLowerCase()) {
-      '.exe' => _Invocation(program, arguments),
-      '.cmd' || '.bat' => _Invocation(program, arguments, runInShell: true),
-      '.ps1' => _Invocation('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', program, ...arguments]),
-      _ when isPackageFile => _Invocation('sh', [program, ...arguments]),
-      _ => _Invocation(program, arguments, runInShell: true),
-    };
   }
 
   Future<Process> _start(
-    _Invocation invocation,
     InstalledArchitecture architecture,
     String command,
+    List<String> args,
     Map<String, String> parameters, {
     required bool json,
     required ProcessStartMode mode,
@@ -128,17 +100,14 @@ class Executor {
       'TEK_ARCHITECTURE': architecture.id,
       'TEK_ARCHITECTURE_VERSION': '${architecture.version}',
       'TEK_ARCHITECTURE_DIR': architecture.directory,
-      'TEK_COMMANDS_DIR': architecture.commandsDir,
-      'TEK_FILES_DIR': architecture.filesDir,
       'TEK_COMMAND': command,
       'TEK_JSON': json ? '1' : '0',
     };
     try {
       return await Process.start(
-        invocation.executable,
-        invocation.arguments,
+        architecture.executable,
+        args,
         environment: environment,
-        runInShell: invocation.runInShell,
         mode: mode,
       );
     } on ProcessException catch (e) {

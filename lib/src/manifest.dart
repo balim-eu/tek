@@ -182,7 +182,6 @@ class ManifestCommand {
   const ManifestCommand({
     required this.name,
     this.description,
-    this.run,
     this.aliases = const [],
     this.arguments = const [],
     this.options = const [],
@@ -195,7 +194,6 @@ class ManifestCommand {
 
   final String name;
   final String? description;
-  final String? run;
   final List<String> aliases;
   final List<CommandArgument> arguments;
   final List<CommandOption> options;
@@ -235,7 +233,6 @@ class Manifest {
     this.license,
     this.os,
     this.systemPrompt,
-    this.executable,
     this.source,
   });
 
@@ -252,6 +249,10 @@ class Manifest {
     final schemaVersion = document['schemaVersion'];
     if (schemaVersion is! int || schemaVersion < 1) {
       throw _invalid('Manifest schemaVersion must be a positive integer$where.');
+    }
+    if (schemaVersion < supportedManifestSchemaVersion) {
+      throw _invalid('Manifest schemaVersion $schemaVersion is no longer supported, architectures use schemaVersion '
+          '$supportedManifestSchemaVersion$where.');
     }
     if (schemaVersion > supportedManifestSchemaVersion) {
       throw TekException(
@@ -282,7 +283,7 @@ class Manifest {
       throw _invalid('Manifest publisher.id "${publisher.id}" does not match id "$id"$where.');
     }
 
-    final shared = schemaVersion >= 2 ? _parseOptions(document['options'], 'options', where) : <CommandOption>[];
+    final shared = _parseOptions(document['options'], 'options', where);
 
     final commandsNode = document['commands'];
     if (commandsNode is! YamlMap || commandsNode.isEmpty) {
@@ -299,7 +300,7 @@ class Manifest {
       if (value != null && value is! YamlMap) {
         throw _invalid('Manifest command "$name" must be a mapping$where.');
       }
-      final command = _parseCommand(name, value as YamlMap?, schemaVersion, shared, where);
+      final command = _parseCommand(name, value as YamlMap?, shared, where);
       for (final alias in [name, ...command.aliases]) {
         if (_reservedCommands.contains(alias)) {
           throw _invalid('Manifest command name or alias "$alias" is reserved by tek$where.');
@@ -318,19 +319,6 @@ class Manifest {
       optionalRequirements.addAll(_parseRequirements(runtime['optional'], 'runtime.optional', where));
     }
 
-    final executable = _optionalString(document, 'executable', where);
-    if (executable != null) {
-      if (!RegExp(r'^[a-z][a-z0-9_-]*$').hasMatch(executable)) {
-        throw _invalid('Manifest executable "$executable" must be lowercase letters, digits, - and _$where.');
-      }
-      for (final command in commands.values) {
-        if (command.run != null) {
-          throw _invalid('Manifest command "${command.name}" has a run value, but the architecture runs its '
-              'executable for every command$where.');
-        }
-      }
-    }
-
     return Manifest(
       schemaVersion: schemaVersion,
       id: id,
@@ -342,16 +330,14 @@ class Manifest {
       commands: commands,
       requirements: requirements,
       optionalRequirements: optionalRequirements,
-      os: schemaVersion >= 2 ? _parseOs(document['os'], 'os', where) : null,
+      os: _parseOs(document['os'], 'os', where),
       systemPrompt: _optionalString(document, 'systemPrompt', where)?.trim(),
-      executable: executable,
       source: source,
     );
   }
 
   final int schemaVersion;
   final String? systemPrompt;
-  final String? executable;
   final String? source;
   final String id;
   final String name;
@@ -363,8 +349,6 @@ class Manifest {
   final List<Requirement> requirements;
   final List<Requirement> optionalRequirements;
   final List<String>? os;
-
-  bool get runIsRelativeToCommands => schemaVersion >= 2;
 
   ManifestCommand? command(String nameOrAlias) {
     final direct = commands[nameOrAlias];
@@ -402,26 +386,8 @@ class Manifest {
         },
       };
 
-  static ManifestCommand _parseCommand(
-    String name,
-    YamlMap? node,
-    int schemaVersion,
-    List<CommandOption> shared,
-    String where,
-  ) {
+  static ManifestCommand _parseCommand(String name, YamlMap? node, List<CommandOption> shared, String where) {
     final context = 'command "$name"';
-    final run = node == null ? null : _optionalString(node, 'run', where);
-    if (run != null) {
-      final valid = schemaVersion >= 2 ? _isSafeCommandLine(run) : _isSafeRelativePath(run);
-      if (!valid) throw _invalid('Manifest $context has an invalid run value "$run"$where.');
-    }
-    if (schemaVersion < 2) {
-      return ManifestCommand(
-        name: name,
-        description: node == null ? null : _optionalString(node, 'description', where)?.trim(),
-        run: run,
-      );
-    }
     node ??= YamlMap();
 
     final aliases = <String>[];
@@ -511,7 +477,6 @@ class Manifest {
     return ManifestCommand(
       name: name,
       description: _optionalString(node, 'description', where)?.trim(),
-      run: run,
       aliases: aliases,
       arguments: arguments,
       options: options,
@@ -685,16 +650,6 @@ class Manifest {
   static bool _isSafeRelativePath(String path) {
     if (path.isEmpty || p.posix.isAbsolute(path) || p.windows.isAbsolute(path)) return false;
     return !p.posix.split(path.replaceAll(r'\', '/')).contains('..');
-  }
-
-  static bool _isSafeCommandLine(String run) {
-    final List<String> tokens;
-    try {
-      tokens = splitCommandLine(run);
-    } on FormatException {
-      return false;
-    }
-    return tokens.isNotEmpty && tokens.every((t) => !t.contains('/') || _isSafeRelativePath(t));
   }
 }
 

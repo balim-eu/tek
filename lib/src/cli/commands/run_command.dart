@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
-import 'package:path/path.dart' as p;
 
 import '../../architecture_ref.dart';
 import '../../errors.dart';
@@ -171,8 +170,7 @@ class RunCommand extends TekCommand {
   }
 
   Future<String?> _guide(ArchitectureRef ref, ManifestCommand command, InstalledArchitecture? local) async {
-    final path = command.helpAi;
-    if (path == null) return null;
+    if (command.helpAi == null) return null;
     final architecture = local ??
         await context.ensureInstalled(
           ref,
@@ -180,30 +178,19 @@ class RunCommand extends TekCommand {
           registry: argResults!.option('registry'),
           install: argResults!.flag('install'),
         );
-    if (architecture.executable case final executable?) {
-      final result = await Process.run(
-        executable,
-        const [],
-        environment: {'TEK_COMMAND': command.name, 'TEK_HELP_AI': '1'},
-        stdoutEncoding: utf8,
-      );
-      if (result.exitCode != 0) {
-        throw TekException(
-          ErrorCodes.commandFailed,
-          '${architecture.reference} has no guide for ${command.name}, its executable exited with code ${result.exitCode}.',
-        );
-      }
-      return result.stdout as String;
-    }
-    final file = File(p.joinAll([architecture.directory, ...p.posix.split(path)]));
-    if (!await file.exists()) {
+    final result = await Process.run(
+      architecture.executable,
+      const [],
+      environment: {'TEK_COMMAND': command.name, 'TEK_HELP_AI': '1'},
+      stdoutEncoding: utf8,
+    );
+    if (result.exitCode != 0) {
       throw TekException(
-        ErrorCodes.integrityCheckFailed,
-        'Installed package ${architecture.reference} is missing $path. '
-        'Reinstall it with "tek install ${architecture.reference} --force".',
+        ErrorCodes.commandFailed,
+        '${architecture.reference} has no guide for ${command.name}, its executable exited with code ${result.exitCode}.',
       );
     }
-    return file.readAsString();
+    return result.stdout as String;
   }
 
   int _commandAiHelp(Manifest manifest, CommandLine commandLine, String? guide, InstalledArchitecture? local) {

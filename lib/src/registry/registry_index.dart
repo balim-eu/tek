@@ -111,8 +111,7 @@ class RegistryArchitecture {
 class RegistryVersion {
   const RegistryVersion({
     required this.version,
-    this.artifact,
-    this.artifacts = const {},
+    required this.artifacts,
     this.manifest,
     this.release,
   });
@@ -134,14 +133,11 @@ class RegistryVersion {
           else
             key: reader.fail('$path.artifacts key "$key" must be <os>-<arch>, e.g. macos-arm64'),
     };
-    final artifact =
-        map['artifact'] == null ? null : RegistryArtifact._fromJson(map['artifact'], reader, '$path.artifact');
-    if (artifact == null && artifacts.isEmpty) reader.fail('$path needs an artifact or artifacts');
+    if (artifacts.isEmpty) reader.fail('$path needs artifacts, one executable per platform');
     return RegistryVersion(
       version: version,
       manifest: reader.optionalUri(map['manifest'], '$path.manifest'),
       release: reader.optionalUri(map['release'], '$path.release'),
-      artifact: artifact,
       artifacts: artifacts,
     );
   }
@@ -149,10 +145,9 @@ class RegistryVersion {
   final Version version;
   final Uri? manifest;
   final Uri? release;
-  final RegistryArtifact? artifact;
   final Map<String, RegistryArtifact> artifacts;
 
-  RegistryArtifact? artifactFor(String platform) => artifacts.isEmpty ? artifact : artifacts[platform];
+  RegistryArtifact? artifactFor(String platform) => artifacts[platform];
 }
 
 class RegistryArtifact {
