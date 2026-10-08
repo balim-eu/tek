@@ -18,16 +18,28 @@ tek tek/flutter-app create my_app --name my_app --org com.example --development-
 Linux and macOS:
 
 ```bash
+# latest release
 curl -fsSL https://raw.githubusercontent.com/balim-eu/tek/main/install.sh | sh
+# latest pre-release
+curl -fsSL https://raw.githubusercontent.com/balim-eu/tek/main/install.sh | sh -s -- pre-release
 ```
 
-The installer downloads the binary for your system from the [latest GitHub release](https://github.com/balim-eu/tek/releases/latest), verifies it against the release's `SHA256SUMS`, and installs it to `~/.local/bin/tek`. If that directory is not on your `PATH`, it prints the line to add to your shell profile. Supported: Linux x64 and arm64, macOS Apple Silicon and Intel.
+Windows (PowerShell):
+
+```powershell
+# latest release
+irm https://raw.githubusercontent.com/balim-eu/tek/main/install.ps1 | iex
+# latest pre-release
+iex "& { $(irm https://raw.githubusercontent.com/balim-eu/tek/main/install.ps1) } pre-release"
+```
+
+The [release channels](#release-channels) explain releases and pre-releases. The installer downloads the binary for your system, verifies it against the release's `SHA256SUMS` and installs it to `~/.local/bin/tek`, on Windows to `%LOCALAPPDATA%\tek\bin\tek.exe`. On Linux and macOS it prints the line to add to your shell profile if that directory is not on your `PATH`; on Windows it adds the directory to your user `PATH`. Supported: Linux x64 and arm64, macOS Apple Silicon and Intel, Windows x64.
 
 ```bash
 tek --version
 ```
 
-Options: install a specific release with `... | sh -s -- 2026-10-06`, install elsewhere with `... | sudo env TEK_INSTALL_DIR=/usr/local/bin sh`, or use `wget -qO- <url> | sh` instead of `curl`. See also [manual install](#manual-install), [update](#update) and [uninstall](#uninstall).
+Options: install a specific release with `... | sh -s -- 2026-10-06` (Windows: `... } 2026-10-06"`), install elsewhere with `... | sudo env TEK_INSTALL_DIR=/usr/local/bin sh` (Windows: set `$env:TEK_INSTALL_DIR` first), or use `wget -qO- <url> | sh` instead of `curl`. See also [manual install](#manual-install), [update](#update) and [uninstall](#uninstall).
 
 ## Registries
 
@@ -147,7 +159,7 @@ tek install acme/internal-api@2 --registry company
 
 ### Security
 
-Architecture packages contain executable commands. `tek` downloads a package, verifies its SHA-256 checksum against the registry, validates its manifest and only then installs it. Before every run, the installed files are verified again; a modified installation is refused until it is reinstalled with `tek install <ref> --force`.
+Every architecture is a single compiled executable, built for each platform by its registry. `tek` downloads the one for your system, verifies its SHA-256 checksum against the registry, validates the architecture's manifest and only then installs it. Before every run, the installed files are verified again; a modified installation is refused until it is reinstalled with `tek install <ref> --force`.
 
 ## JSON mode
 
@@ -218,7 +230,7 @@ install -m 755 tek ~/.local/bin/tek
 | macOS Intel           | `tek-macos-x64.tar.gz`      |
 | Windows x64           | `tek-windows-x64.zip`       |
 
-On macOS use `shasum -a 256 -c SHA256SUMS --ignore-missing` instead of `sha256sum`.
+On macOS use `shasum -a 256 -c SHA256SUMS --ignore-missing` instead of `sha256sum`. On Windows, download `tek-windows-x64.zip`, compare `(Get-FileHash tek-windows-x64.zip).Hash` with its line in `SHA256SUMS`, extract `tek.exe` and put its folder on your `PATH`.
 
 ## Update
 
@@ -237,7 +249,7 @@ tek update --check         # only report whether an update is available
 | pre-release | `YYYY-MM-DD-rc.N`   | on every push to `main` that changes the CLI; `N` counts up during the day              |
 | release     | `YYYY-MM-DD`        | every night at 23:55 UTC, built from that day's latest pre-release; skipped without one |
 
-A day's pre-releases are older than that day's release, so `tek update` moves you from `2026-10-07-rc.3` to `2026-10-07` once the nightly release is out, and never downgrades. Install a pre-release directly with `... | sh -s -- 2026-10-07-rc.3`.
+A day's pre-releases are older than that day's release, so `tek update` moves you from `2026-10-07-rc.3` to `2026-10-07` once the nightly release is out, and never downgrades. Install the newest pre-release with `... | sh -s -- pre-release`, or a specific one with `... | sh -s -- 2026-10-07-rc.3`.
 
 ## Files
 
@@ -246,13 +258,14 @@ tek only ever touches these paths:
 | Path                                       | Written by                                    | Removed by                                  |
 | ------------------------------------------ | --------------------------------------------- | ------------------------------------------- |
 | `~/.local/bin/tek` (or `$TEK_INSTALL_DIR`) | install script, replaced by `tek update`      | you, see [Uninstall](#uninstall)            |
+| `%LOCALAPPDATA%\tek\bin\tek.exe` (Windows) | install script, replaced by `tek update`      | you, see [Uninstall](#uninstall)            |
 | `<same directory>/.tek.tmp`                | install script and `tek update`, while staging | right after staging, also on failure        |
 | `~/.tek/architectures/<publisher>/<name>/` | `tek install`, `tek run`                      | `tek uninstall <publisher/name[@version]>`  |
-| `~/.tek/tmp/`                              | `tek install`, while unpacking                | right after unpacking                       |
+| `~/.tek/tmp/`                              | `tek install`, while staging                  | right after staging                         |
 | `~/.tek/config.json`                       | `tek registry add`                            | `tek registry remove` (entries)             |
 | `~/.tek/credentials.json`                  | `tek registry add --token`                    | `tek registry remove` (tokens)              |
 
-Shell profiles are never modified; the installer only prints the `PATH` line to add.
+Shell profiles are never modified; the installer only prints the `PATH` line to add. On Windows, `~` is `%USERPROFILE%`, and the installer adds `%LOCALAPPDATA%\tek\bin` to your user `PATH`.
 
 ## Uninstall
 
@@ -262,6 +275,14 @@ Shell profiles are never modified; the installer only prints the `PATH` line to 
 rm ~/.local/bin/tek
 rm -rf ~/.tek
 ```
+
+On Windows:
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\tek", "$env:USERPROFILE\.tek"
+```
+
+and remove `%LOCALAPPDATA%\tek\bin` from your user `PATH` (Settings, Environment Variables).
 
 `~/.tek` holds installed architectures, registries and registry tokens. If tek is installed somewhere else, for example with `TEK_INSTALL_DIR=/usr/local/bin`, find it with `command -v tek` and remove that file instead (`sudo rm /usr/local/bin/tek`).
 
@@ -283,4 +304,4 @@ dart compile exe bin/tek.dart -o tek
 
 Everything happens in a workspace outside this repository, by default the `tek-dev` folder next to it: the tek home (`.home`), the built registry (`.registry`) and, when `./dev` is run from inside the tek or tek-registry-sources repository, the commands themselves, so `my_app` above ends up in `tek-dev/my_app`. Run from anywhere else, `./dev` works in the current directory like `tek`.
 
-By default the registry sources are the `tek-registry-sources` folder next to this repository. Change `registry_repository` or `workspace` at the top of `dev`, or set `TEK_DEV_REGISTRY` and `TEK_DEV_WORKSPACE`. The registry is rebuilt when its architectures change, architectures with an executable are compiled for your machine with their `compile.sh` and cached by their sources, outdated installs are replaced automatically, and deleting the workspace starts over.
+By default the registry sources are the `tek-registry-sources` folder next to this repository. Change `registry_repository` or `workspace` at the top of `dev`, or set `TEK_DEV_REGISTRY` and `TEK_DEV_WORKSPACE`. The registry is rebuilt when its architectures change, every architecture is compiled for your machine with its `compile.sh` and cached by its sources, outdated installs are replaced automatically, and deleting the workspace starts over.

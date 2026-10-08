@@ -3,6 +3,7 @@ set -eu
 
 REPOSITORY="balim-eu/tek"
 RELEASES_URL="${TEK_RELEASES_URL:-https://github.com/$REPOSITORY/releases}"
+API_URL="${TEK_API_URL:-https://api.github.com/repos/$REPOSITORY}"
 INSTALL_DIR="${TEK_INSTALL_DIR:-$HOME/.local/bin}"
 
 say() {
@@ -89,16 +90,22 @@ main() {
   target="$(detect_target)"
   asset="tek-$target.tar.gz"
 
+  command -v tar > /dev/null 2>&1 || fail "tar is required"
+
+  tmp="$(mktemp -d 2> /dev/null || mktemp -d -t tek)"
+  trap 'rm -rf "$tmp"' EXIT INT TERM
+
+  if [ "$version" = "pre-release" ] || [ "$version" = "--pre-release" ]; then
+    download "$API_URL/releases?per_page=1" "$tmp/releases.json" || fail "unable to look up the newest release"
+    version="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/releases.json" | head -n 1)"
+    [ -n "$version" ] || fail "no release found at $RELEASES_URL"
+  fi
+
   if [ "$version" = "latest" ]; then
     base="$RELEASES_URL/latest/download"
   else
     base="$RELEASES_URL/download/$version"
   fi
-
-  command -v tar > /dev/null 2>&1 || fail "tar is required"
-
-  tmp="$(mktemp -d 2> /dev/null || mktemp -d -t tek)"
-  trap 'rm -rf "$tmp"' EXIT INT TERM
 
   say "Downloading tek $version for $target..."
   download "$base/$asset" "$tmp/$asset" || fail "unable to download $base/$asset"
