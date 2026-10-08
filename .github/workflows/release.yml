@@ -35,7 +35,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -101,7 +101,7 @@ jobs:
           - { os: macos, arch: arm64, runner: macos-latest, native: true }
           - { os: windows, arch: x64, runner: windows-latest, native: true }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
