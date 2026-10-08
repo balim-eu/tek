@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+root=$(cd "$(dirname "$0")" && pwd -P)
+
+registry_repository=${TEK_DEV_REGISTRY:-"$root/../tek-registry-sources"}
+workspace=${TEK_DEV_WORKSPACE:-"$root/../tek-dev"}
+
+if ! registry_repository=$(cd "$registry_repository" 2>/dev/null && pwd -P); then
+  echo "dev: registry repository ${TEK_DEV_REGISTRY:-$root/../tek-registry-sources} not found." >&2
+  echo "dev: change registry_repository in $root/dev or set TEK_DEV_REGISTRY." >&2
+  exit 1
+fi
+created=
+if [ ! -d "$workspace" ]; then
+  mkdir -p "$workspace"
+  created=1
+fi
+workspace=$(cd "$workspace" && pwd -P)
+case "$workspace/" in
+  "$root"/* | "$registry_repository"/*)
+    if [ -n "$created" ]; then rmdir "$workspace"; fi
+    echo "dev: the workspace $workspace must be outside the tek and tek-registry-sources repositories." >&2
+    echo "dev: change workspace in $root/dev or set TEK_DEV_WORKSPACE." >&2
+    exit 1
+    ;;
+esac
+
+registry="$workspace/.registry"
+index="$registry/registry.json"
+built_from="$registry/.source"
+export TEK_HOME="$workspace/.home"
+
+if [ ! -f "$root/.dart_tool/package_config.json" ]; then
+  (cd "$root" && dart pub get >/dev/null)
+fi
+
+if [ ! -f "$index" ] || [ "$(cat "$built_from" 2>/dev/null)" != "$registry_repository" ] ||
+  [ -n "$(find "$registry_repository/architectures" "$root/tool" -newer "$index" -not -path '*/.dart_tool/*' -not -name embedded.dart -print 2>/dev/null | head -n 1)" ]; then
+  (cd "$root" && dart run tool/dev_registry.dart "$registry_repository" "$registry")
+  echo "$registry_repository" >"$built_from"
+fi
+
+if [ ! -f "$TEK_HOME/config.json" ]; then
+  if ! output=$(dart run "$root/bin/tek.dart" registry add local "$index" 2>&1); then
+    echo "$output" >&2
+    exit 1
+  fi
+fi
+
+case "$(pwd -P)/" in
+  "$root"/* | "$registry_repository"/*)
+    echo "dev: running in $workspace" >&2
+    cd "$workspace"
+    ;;
+esac
+
+exec dart run "$root/bin/tek.dart" "$@"

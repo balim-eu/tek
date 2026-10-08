@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bin/**"
+      - "lib/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+  schedule:
+    - cron: "55 23 * * *"
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: Publish main as a pre-release, or promote today's latest pre-release to the release
+        type: choice
+        options: [pre-release, release]
+        default: pre-release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: dart-lang/setup-dart@v1
+
+      - run: dart pub get
+
+      - run: dart analyze --fatal-infos
+
+      - name: Plan release
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          skip() {
+            echo "$1"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          if [ "$EVENT" = "schedule" ] || [ "$KIND" = "release" ]; then
+            day="$(date -u -d '3 hours ago' +%Y-%m-%d)"
+            git rev-parse -q --verify "refs/tags/$day" > /dev/null && skip "Release $day already exists."
+            rc="$(git tag --list "$day-rc.*" | sort -V | tail -n 1)"
+            [ -n "$rc" ] || skip "No pre-release was published on $day."
+            tag="$day"
+            sha="$(git rev-list -n 1 "$rc")"
+            prerelease=false
+            echo "Promoting $rc ($sha) to release $tag."
+          else
+            sha="$(git rev-parse HEAD)"
+            existing="$(git tag --points-at "$sha" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}(-rc\.[0-9]+)?$' || true)"
+            [ -z "$existing" ] || skip "$sha is already released as $existing."
+            day="$(date -u +%Y-%m-%d)"
+            last="$(git tag --list "$day-rc.*" | sort -V | tail -n 1)"
+            number=1
+            [ -z "$last" ] || number=$(( ${last##*-rc.} + 1 ))
+            tag="$day-rc.$number"
+            prerelease=true
+            echo "Publishing $sha as pre-release $tag."
+          fi
+
+          {
+            echo "release=true"
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: linux, arch: x64, runner: ubuntu-24.04, native: true }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04, native: false }
+          - { os: macos, arch: x64, runner: macos-15-intel, native: true }
+          - { os: macos, arch: arm64, runner: macos-latest, native: true }
+          - { os: windows, arch: x64, runner: windows-latest, native: true }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: dart-lang/setup-dart@v1
+
+      - run: dart pub get
+
+      - name: Compile
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+          NATIVE: ${{ matrix.native }}
+        run: |
+          mkdir -p build dist
+          exe="tek"
+          [ "$OS" = "windows" ] && exe="tek.exe"
+
+          target=()
+          [ "$NATIVE" = "true" ] || target=(--target-os "$OS" --target-arch "$ARCH")
+          dart compile exe bin/tek.dart -o "build/$exe" "-Dtek.version=$TAG" "${target[@]}"
+
+          if [ "$NATIVE" = "true" ]; then
+            "./build/$exe" --version
+          fi
+
+          if [ "$OS" = "windows" ]; then
+            (cd build && 7z a "../dist/tek-$OS-$ARCH.zip" "$exe")
+          else
+            COPYFILE_DISABLE=1 tar --no-xattrs -C build -czf "dist/tek-$OS-$ARCH.tar.gz" "$exe"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tek-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish ${{ needs.prepare.outputs.tag }}
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum tek-* > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          channel=(--latest)
+          [ "$PRERELEASE" = "true" ] && channel=(--prerelease --latest=false)
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "tek $TAG" \
+            --generate-notes \
+            "${channel[@]}"
