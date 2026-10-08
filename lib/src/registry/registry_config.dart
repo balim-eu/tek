@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../errors.dart';
 import '../fetcher.dart';
+import 'registry_auth.dart';
 
 final _registryName = RegExp(r'^[a-z0-9][a-z0-9_-]*$');
 
@@ -19,20 +20,20 @@ class RegistryConfig {
       name: json['name'] as String,
       url: Uri.parse(json['url'] as String),
       type: json['type'] as String? ?? 'index',
-      auth: json['auth'] as String?,
+      auth: AuthInfo.fromJson(json['auth']),
     );
   }
 
   final String name;
   final Uri url;
   final String type;
-  final String? auth;
+  final AuthInfo? auth;
 
   Map<String, Object?> toJson() => {
         'name': name,
         'url': '$url',
         if (type != 'index') 'type': type,
-        if (auth != null) 'auth': auth,
+        if (auth != null) 'auth': auth!.toJson(),
       };
 
   static bool isValidName(String name) => _registryName.hasMatch(name);
@@ -73,7 +74,14 @@ class RegistryConfigStore {
     return [for (final entry in registries) RegistryConfig.fromJson(entry)];
   }
 
-  Future<(RegistryConfig, bool)> add(String name, Uri url, {String? auth}) async {
+  Future<RegistryConfig> get(String name) async {
+    for (final registry in await load()) {
+      if (registry.name == name) return registry;
+    }
+    throw TekException(ErrorCodes.registryNotFound, 'No registry named "$name" is configured.');
+  }
+
+  Future<(RegistryConfig, bool)> add(String name, Uri url, {AuthInfo? auth}) async {
     if (!RegistryConfig.isValidName(name)) {
       throw TekException(
         ErrorCodes.usage,

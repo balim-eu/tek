@@ -14,6 +14,8 @@ import 'registry_index.dart';
 abstract interface class Registry {
   RegistryConfig get config;
 
+  Future<RegistryIndex> index();
+
   Future<List<RegistryArchitecture>> search(String query);
 
   Future<RegistryArchitecture?> find(String id);
@@ -23,16 +25,9 @@ abstract interface class Registry {
   Future<Uint8List> download(RegistryArtifact artifact);
 }
 
-Registry openRegistry(RegistryConfig config, Fetcher fetcher, {String? token}) {
-  if (config.auth != null && config.auth != tokenAuth) {
-    throw TekException(
-      ErrorCodes.config,
-      'Registry "${config.name}" uses unsupported authentication "${config.auth}". '
-      'Add it again with "tek registry add ${config.name} ${config.url} --token <token>".',
-    );
-  }
+Registry openRegistry(RegistryConfig config, Fetcher fetcher, {Credential? credential}) {
   return switch (config.type) {
-    'index' => IndexRegistry(config, fetcher, token: token),
+    'index' => IndexRegistry(config, fetcher, credential: credential),
     _ => throw TekException(
         ErrorCodes.unsupportedRegistryType,
         'Registry "${config.name}" has unsupported type "${config.type}".',
@@ -41,18 +36,22 @@ Registry openRegistry(RegistryConfig config, Fetcher fetcher, {String? token}) {
 }
 
 class IndexRegistry implements Registry {
-  IndexRegistry(this.config, this._fetcher, {String? token})
-      : _auth = config.auth == null ? null : TokenAuth(config.name, config.url, token);
+  IndexRegistry(this.config, this._fetcher, {Credential? credential})
+      : _auth = config.auth == null && credential == null
+            ? null
+            : RegistryAuth(config.name, config.url, config.auth, credential);
 
   @override
   final RegistryConfig config;
   final Fetcher _fetcher;
-  final TokenAuth? _auth;
+  final RegistryAuth? _auth;
   Future<RegistryIndex>? _index;
 
+  @override
   Future<RegistryIndex> index() => _index ??= _load();
 
   Future<RegistryIndex> _load() async {
+    config.auth?.ensureSupported(config.name);
     final String text;
     try {
       text = await _fetcher.readString(config.url, errorCode: ErrorCodes.registryUnavailable, credentials: _auth);
@@ -60,7 +59,8 @@ class IndexRegistry implements Registry {
       if (_auth != null || !const {401, 403, 404}.contains(e.details?['status'])) rethrow;
       throw TekException(
         e.code,
-        '${e.message} If the registry is private, add it with --token.',
+        e.message,
+        hint: 'If the registry is private, save its credentials with: tek registry login ${config.name}',
         details: e.details,
       );
     }
@@ -157,11 +157,7 @@ class RegistrySet {
     final configs = await store.load();
     return RegistrySet([
       for (final config in configs)
-        openRegistry(
-          config,
-          fetcher,
-          token: config.auth == tokenAuth ? await credentials.token(config.name) : null,
-        ),
+        openRegistry(config, fetcher, credential: await credentials.credential(config.name)),
     ]);
   }
 

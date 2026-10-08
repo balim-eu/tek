@@ -35,10 +35,10 @@ Every version is listed on the [releases page](https://github.com/balim-eu/tek/r
 ### 2. Add a registry
 
 ```bash
-tek registry add balim-eu https://raw.githubusercontent.com/balim-eu/tek-registry/main/registry.json --token <token>
+tek registry add balim-eu https://raw.githubusercontent.com/balim-eu/tek-registry/main/registry.json
 ```
 
-See [registries](#registries) for the available registries and how to get a token.
+tek asks for a token or a username and password when the registry needs one. See [registries](#registries) for the available registries.
 
 ### 3. Run an architecture
 
@@ -50,21 +50,21 @@ tek tek/flutter-app create my_app --name my_app --org com.example --development-
 
 ## Registries
 
-| Name       | URL                                                                          | Access                                       |
-| ---------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
-| `balim-eu` | `https://raw.githubusercontent.com/balim-eu/tek-registry/main/registry.json` | private, needs a [token](#token-for-balim-eu) |
+| Name       | URL                                                                          | Access                         |
+| ---------- | ---------------------------------------------------------------------------- | ------------------------------ |
+| `balim-eu` | `https://raw.githubusercontent.com/balim-eu/tek-registry/main/registry.json` | [token](#token-for-balim-eu)   |
 
-More registries are coming. Any `registry.json` served over HTTPS or from a local path can be added, public ones without a token: `tek registry add <name> <url>`.
+More registries are coming. Any `registry.json` served over HTTPS or from a local path can be added with `tek registry add <name> <url>`.
 
 ### Token for balim-eu
 
-[Create a fine-grained token](https://github.com/settings/personal-access-tokens/new) with:
+[Create a fine-grained token](https://github.com/settings/personal-access-tokens/new):
 
 - **Resource owner:** `balim-eu`. If it is not listed, your account is not a member of the organization.
-- **Repository access:** only `balim-eu/tek-registry`.
-- **Repository permissions:** Contents *Read-only*, nothing else.
+- **Repository access:** only `balim-eu/tek-registry`
+- **Permissions:** Contents: Read-only
 
-The token starts with `github_pat_`. If the organization requires approval, tek reports `ACCESS_DENIED` until an owner approves it.
+The token starts with `github_pat_`. If the organization requires approval, tek reports `ACCESS_DENIED` until an owner approves it. When it expires, save a new one with `tek registry login balim-eu`.
 
 ## Commands
 
@@ -83,8 +83,10 @@ tek <architecture> doctor                        Check the software an architect
 tek <architecture> prompt <task>                 Print a prompt that starts an AI agent on a task
 tek <architecture> --version                     Show the version of an architecture
 tek registry list                                List the configured registries
-tek registry add [name] <url> [--token <token>]  Add or update a registry
-tek registry remove <name>                       Remove a registry
+tek registry add [name] <url>                    Add or update a registry, asks for credentials if needed
+tek registry login <name>                        Save new credentials, e.g. after a token expired
+tek registry logout <name>                       Remove the saved credentials
+tek registry remove <name>                       Remove a registry and its credentials
 tek update [--pre-release] [--check]             Update tek itself
 ```
 
@@ -144,6 +146,18 @@ Supported: Linux x64 and arm64, macOS Apple Silicon and Intel, Windows x64.
 
 To install by hand, download `tek-<os>-<arch>.tar.gz` (Windows: `tek-windows-x64.zip`) and `SHA256SUMS` from the [releases page](https://github.com/balim-eu/tek/releases), check the checksum and put `tek` on your `PATH`.
 
+### Registry credentials
+
+A registry is public, or needs a token (sent as `Authorization: Bearer`) or a username and password (sent as `Authorization: Basic`). Its `registry.json` describes which one, what it is for and where to get it, and tek shows that when it asks for credentials or when they are rejected.
+
+```bash
+tek registry add <name> <url> --token github_pat_xxx
+tek registry add <name> <url> --token -                        # hidden prompt, or read from stdin
+tek registry add <name> <url> --username me --password -
+```
+
+Without these options, tek asks in an interactive terminal. In scripts, CI and with `--json` it never asks and fails with `AUTHENTICATION_REQUIRED` and a hint instead. For CI, set `TEK_REGISTRY_<NAME>_TOKEN`, or `TEK_REGISTRY_<NAME>_USERNAME` and `TEK_REGISTRY_<NAME>_PASSWORD` (`balim-eu` → `TEK_REGISTRY_BALIM_EU_TOKEN`). They take precedence over saved credentials and are never written to disk. Credentials are only sent over HTTPS, to the registry's host and the hosts its `registry.json` lists.
+
 ### Security
 
 Every architecture is one compiled executable per platform. tek downloads the one for your system, verifies its SHA-256 checksum against the registry and validates the manifest before installing it. Before every run the installation is verified again; a modified one is refused until `tek install <architecture> --force`.
@@ -169,7 +183,7 @@ On Windows, `~` is `%USERPROFILE%`.
 | `~/.local/bin/tek`, Windows `%LOCALAPPDATA%\tek\bin\tek.exe` | installer, `tek update`    | you, see [Uninstall](#uninstall) |
 | `~/.tek/architectures/<publisher>/<name>/`    | `tek install`, `tek run`                  | `tek uninstall`               |
 | `~/.tek/config.json`                          | `tek registry add`                        | `tek registry remove`         |
-| `~/.tek/credentials.json`                     | `tek registry add --token`                | `tek registry remove`         |
+| `~/.tek/credentials.json`                     | `tek registry add`, `tek registry login`  | `tek registry logout`, `tek registry remove` |
 | `~/.tek/tmp/`, `.tek.tmp` next to the binary  | `tek install`, installer, `tek update`    | right after use               |
 
 Shell profiles are never modified.

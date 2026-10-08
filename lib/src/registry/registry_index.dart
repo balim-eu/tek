@@ -2,13 +2,14 @@ import 'package:pub_semver/pub_semver.dart';
 
 import '../architecture_ref.dart';
 import '../errors.dart';
+import 'registry_auth.dart';
 
 const supportedRegistrySchemaVersion = 2;
 
 final _sha256 = RegExp(r'^[0-9a-f]{64}$');
 
 class RegistryIndex {
-  const RegistryIndex({required this.schemaVersion, required this.architectures});
+  const RegistryIndex({required this.schemaVersion, required this.architectures, this.auth});
 
   factory RegistryIndex.fromJson(Object? json, {required Uri source}) {
     final reader = _Reader(source);
@@ -29,11 +30,35 @@ class RegistryIndex {
       }
       architectures[architecture.id] = architecture;
     }
-    return RegistryIndex(schemaVersion: schemaVersion, architectures: architectures.values.toList());
+    return RegistryIndex(
+      schemaVersion: schemaVersion,
+      architectures: architectures.values.toList(),
+      auth: root['auth'] == null ? null : _auth(root['auth'], reader),
+    );
+  }
+
+  static AuthInfo _auth(Object? json, _Reader reader) {
+    final map = reader.map(json, 'auth');
+    final url = reader.optionalString(map['url'], 'auth.url');
+    if (url != null && !url.startsWith('https://')) reader.fail('auth.url must be an https URL');
+    return AuthInfo(
+      reader.string(map['type'], 'auth.type'),
+      description: reader.optionalString(map['description'], 'auth.description'),
+      permissions: [
+        for (final (index, permission) in reader.list(map['permissions'] ?? const [], 'auth.permissions').indexed)
+          reader.string(permission, 'auth.permissions[$index]'),
+      ],
+      url: url == null ? null : Uri.parse(url),
+      hosts: [
+        for (final (index, host) in reader.list(map['hosts'] ?? const [], 'auth.hosts').indexed)
+          reader.string(host, 'auth.hosts[$index]').toLowerCase(),
+      ],
+    );
   }
 
   final int schemaVersion;
   final List<RegistryArchitecture> architectures;
+  final AuthInfo? auth;
 
   RegistryArchitecture? find(String id) {
     for (final architecture in architectures) {

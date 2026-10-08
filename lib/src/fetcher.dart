@@ -16,7 +16,7 @@ const _maxRedirects = 5;
 abstract interface class Credentials {
   bool appliesTo(Uri uri);
 
-  Future<String> token();
+  String authorization();
 
   String get hint;
 }
@@ -96,7 +96,7 @@ class Fetcher {
         ..followRedirects = false
         ..headers['User-Agent'] = 'tek/$tekVersion';
       if (accept != null) request.headers['Accept'] = accept;
-      if (authenticated) request.headers['Authorization'] = 'Bearer ${await credentials.token()}';
+      if (authenticated) request.headers['Authorization'] = credentials.authorization();
 
       final response = await http.Response.fromStream(await _client.send(request));
       final status = response.statusCode;
@@ -107,21 +107,24 @@ class Fetcher {
         continue;
       }
       if (status == 200) return response.bodyBytes;
+      final challenge = response.headers['www-authenticate'];
+      final details = {'status': status, if (challenge != null) 'challenge': challenge};
       if (authenticated && const {401, 403, 404}.contains(status)) {
         throw TekException(
           ErrorCodes.accessDenied,
-          'Access to $uri was denied (HTTP $status). ${credentials.hint}',
-          details: {'status': status},
+          'Access to $uri was denied (HTTP $status).',
+          hint: credentials.hint,
+          details: details,
         );
       }
       if (!authenticated && const {401, 403}.contains(status)) {
         throw TekException(
           ErrorCodes.authenticationRequired,
           '$uri requires authentication (HTTP $status).',
-          details: {'status': status},
+          details: details,
         );
       }
-      throw TekException(errorCode, 'Request to $uri failed with HTTP $status.', details: {'status': status});
+      throw TekException(errorCode, 'Request to $uri failed with HTTP $status.', details: details);
     }
     throw TekException(errorCode, 'Request to $uri was redirected too many times.');
   }

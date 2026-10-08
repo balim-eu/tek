@@ -49,6 +49,9 @@ class Output implements Progress {
     for (final line in more) {
       stderr.writeln(line);
     }
+    for (final line in error.hint?.split('\n') ?? const <String>[]) {
+      stderr.writeln('  $line');
+    }
     if (usage != null) stderr.writeln('\n${errorStyle.dim(usage)}');
   }
 

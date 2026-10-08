@@ -1,14 +1,16 @@
 class TekException implements Exception {
-  TekException(this.code, this.message, {this.exitCode = 1, this.details});
+  TekException(this.code, this.message, {this.exitCode = 1, this.details, this.hint});
 
   final String code;
   final String message;
   final int exitCode;
   final Map<String, Object?>? details;
+  final String? hint;
 
   Map<String, Object?> toJson() => {
         'code': code,
         'message': message,
+        if (hint != null) 'hint': hint,
         if (details != null) 'details': details,
       };
 
