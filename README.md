@@ -79,6 +79,7 @@ tek <publisher/name@version> <command>           Same as tek run
 tek <publisher/name@version> --help              Show an architecture's commands
 tek <publisher/name@version> --help-ai           Show an architecture's commands as Markdown for AI agents
 tek <publisher/name@version> --version           Show an architecture's version
+tek <publisher/name@version> doctor              Check the software an architecture needs on this machine
 tek <publisher/name@version> prompt <task>       Print a prompt that starts an AI agent on a task
 tek <publisher/name@version> <command> --help    Show a command's arguments and options
 tek <publisher/name@version> <command> --help-ai Show a command's guide with examples as Markdown for AI agents
@@ -99,6 +100,8 @@ tek tek/flutter-app create my_app --name my_app --org com.example --development-
 tek tek/flutter-app analyze my_app
 tek tek/flutter-app fix my_app
 ```
+
+`tek <architecture> doctor` checks the software an architecture declares in its manifest, what every command needs, what single commands need and what is optional, and shows the version found and how to install what is missing. It exits with 1 when something required is missing.
 
 `tek <architecture> prompt <task>` prints a prompt to start an AI agent with: the architecture's system prompt, how to work with it, in `<system_prompt>` tags and the task in `<user_prompt>` tags. Copy it into the agent, e.g. `tek tek/flutter-app prompt "Build a shop app with a cart" | pbcopy`, or pipe a longer task in with `tek tek/flutter-app prompt < task.md`.
 

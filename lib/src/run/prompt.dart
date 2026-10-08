@@ -1,6 +1,7 @@
 import '../manifest.dart';
 
 List<(String, String)> builtInCommands(Manifest manifest) => [
+      ('doctor', 'Check the software ${manifest.id} needs on this machine.'),
       ('prompt', 'Print a prompt that starts an AI agent on a task with ${manifest.id}.'),
       ('version', 'Show the version of ${manifest.id}.'),
     ];

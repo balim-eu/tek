@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:pub_semver/pub_semver.dart';
 import 'package:yaml/yaml.dart';
@@ -11,7 +13,7 @@ final _commandName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _parameterName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _environmentName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 const _reservedOptions = {'help', 'help-ai', 'json'};
-const _reservedCommands = {'prompt', 'version'};
+const _reservedCommands = {'doctor', 'prompt', 'version'};
 const operatingSystems = {'linux', 'macos', 'windows'};
 
 enum ValueType {
@@ -46,12 +48,16 @@ class ManifestPublisher {
 }
 
 class Requirement {
-  const Requirement({required this.tool, this.version, this.command, this.install});
+  const Requirement({required this.tool, this.version, this.command, this.install, this.description, this.os});
 
   final String tool;
   final String? version;
   final String? command;
   final String? install;
+  final String? description;
+  final List<String>? os;
+
+  bool get appliesHere => os == null || os!.contains(Platform.operatingSystem);
 
   bool get checksVersion => version != null && version != 'any' && version != '*';
 
@@ -62,6 +68,8 @@ class Requirement {
         if (version != null) 'version': version,
         if (command != null) 'command': command,
         if (install != null) 'install': install,
+        if (description != null) 'description': description,
+        if (os != null) 'os': os,
       };
 }
 
@@ -222,6 +230,7 @@ class Manifest {
     required this.publisher,
     required this.commands,
     required this.requirements,
+    this.optionalRequirements = const [],
     this.description,
     this.license,
     this.os,
@@ -301,10 +310,12 @@ class Manifest {
     }
 
     final requirements = <Requirement>[];
+    final optionalRequirements = <Requirement>[];
     final runtime = document['runtime'];
     if (runtime != null) {
       if (runtime is! YamlMap) throw _invalid('Manifest runtime must be a mapping$where.');
       requirements.addAll(_parseRequirements(runtime['required'], 'runtime.required', where));
+      optionalRequirements.addAll(_parseRequirements(runtime['optional'], 'runtime.optional', where));
     }
 
     final executable = _optionalString(document, 'executable', where);
@@ -330,6 +341,7 @@ class Manifest {
       license: _optionalString(document, 'license', where),
       commands: commands,
       requirements: requirements,
+      optionalRequirements: optionalRequirements,
       os: schemaVersion >= 2 ? _parseOs(document['os'], 'os', where) : null,
       systemPrompt: _optionalString(document, 'systemPrompt', where)?.trim(),
       executable: executable,
@@ -349,6 +361,7 @@ class Manifest {
   final String? license;
   final Map<String, ManifestCommand> commands;
   final List<Requirement> requirements;
+  final List<Requirement> optionalRequirements;
   final List<String>? os;
 
   bool get runIsRelativeToCommands => schemaVersion >= 2;
@@ -384,6 +397,8 @@ class Manifest {
         'commands': [for (final command in commands.values) command.toJson()],
         'runtime': {
           'required': {for (final r in requirements) r.tool: r.version ?? 'any'},
+          if (optionalRequirements.isNotEmpty)
+            'optional': {for (final r in optionalRequirements) r.tool: r.version ?? 'any'},
         },
       };
 
@@ -632,6 +647,8 @@ class Manifest {
               version: _optionalString(value, 'version', where),
               command: _optionalString(value, 'command', where),
               install: _optionalString(value, 'install', where),
+              description: _optionalString(value, 'description', where)?.trim(),
+              os: _parseOs(value['os'], '$context ${entry.key} os', where),
             ),
           final Object value => Requirement(tool: '${entry.key}', version: '$value'),
         },

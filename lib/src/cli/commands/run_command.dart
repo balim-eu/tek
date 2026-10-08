@@ -16,6 +16,7 @@ import 'tek_command.dart';
 
 const _helpFlags = {'--help', '-h'};
 const _helpAi = '--help-ai';
+const _doctor = 'doctor';
 const _prompt = 'prompt';
 const _version = 'version';
 
@@ -63,6 +64,7 @@ class RunCommand extends TekCommand {
     if (args.first == '--$_version' || args.first == _version)
       return _architectureVersion(manifest, local, args.skip(1));
     if (args.first == _prompt) return _agentPrompt(ref, manifest, local, args.skip(1).toList());
+    if (args.first == _doctor) return _checkSoftware(ref, manifest, args.skip(1).toList());
 
     final command = manifest.command(args.first);
     if (command == null) {
@@ -270,6 +272,113 @@ class RunCommand extends TekCommand {
             'or --help-ai for a guide with examples for AI agents.'));
     });
     return 0;
+  }
+
+  Future<int> _checkSoftware(ArchitectureRef ref, Manifest manifest, List<String> args) async {
+    if (args.length == 1 && _helpFlags.contains(args.single)) {
+      output.success({
+        'architecture': manifest.id,
+        'version': '${manifest.version}',
+        'command': _doctor,
+        'usage': 'tek $ref $_doctor',
+      }, (out) {
+        final style = output.style;
+        out
+          ..writeln('${style.id(manifest.id)}${style.dim('@')}${style.version('${manifest.version}')} '
+              '${style.bold(style.command(_doctor))}')
+          ..writeln('Check the software ${manifest.id} needs on this machine: what every command needs, what single '
+              'commands need and what is optional, with the version found and how to install what is missing.')
+          ..writeln()
+          ..writeln('${style.heading('Usage:')} tek $ref $_doctor');
+      });
+      return 0;
+    }
+    if (args.isNotEmpty) {
+      throw TekException(ErrorCodes.usage, '$_doctor takes no arguments, got "${args.join(' ')}".', exitCode: 64);
+    }
+    final runtime = {for (final requirement in manifest.requirements) requirement.tool};
+    final byCommand = <String, (Requirement, List<String>)>{};
+    for (final command in manifest.commands.values) {
+      for (final requirement in command.requires.where((r) => !runtime.contains(r.tool))) {
+        final key = '${requirement.tool}\u0000${requirement.version}\u0000${requirement.command}';
+        final (existing, commands) = byCommand[key] ?? (requirement, <String>[]);
+        byCommand[key] = (existing, [...commands, command.name]);
+      }
+    }
+    final checker = RequirementChecker();
+    final [required, commands, optional] = await Future.wait([
+      Future.wait(manifest.requirements.map(checker.inspect)),
+      Future.wait([for (final (requirement, _) in byCommand.values) checker.inspect(requirement)]),
+      Future.wait(manifest.optionalRequirements.map(checker.inspect)),
+    ]);
+    final users = [for (final (_, names) in byCommand.values) names];
+    final missing = [...required, ...commands].where((status) => !status.ok).length;
+    final data = {
+      'ok': missing == 0,
+      'architecture': manifest.id,
+      'version': '${manifest.version}',
+      'required': [for (final status in required) status.toJson()],
+      'commands': [
+        for (final (index, status) in commands.indexed) {...status.toJson(), 'commands': users[index]},
+      ],
+      'optional': [for (final status in optional) status.toJson()],
+    };
+    if (jsonMode) {
+      output.result(data);
+      return missing == 0 ? 0 : 1;
+    }
+    final style = output.style;
+    final all = [...required, ...commands, ...optional];
+    final toolWidth = all.fold(0, (width, s) => s.requirement.tool.length > width ? s.requirement.tool.length : width);
+    final versionWidth = all.fold(
+        3,
+        (width, s) =>
+            (s.requirement.version ?? 'any').length > width ? (s.requirement.version ?? 'any').length : width);
+    String found(RequirementStatus status) => switch (status) {
+          RequirementStatus(skipped: true) => 'only on ${status.requirement.os!.join(', ')}',
+          RequirementStatus(found: final String found) when status.ok =>
+            found.contains(Platform.pathSeparator) ? 'installed' : found,
+          RequirementStatus(found: final String found) => 'found $found',
+          _ => 'missing',
+        };
+    void section(String title, List<RequirementStatus> statuses, {List<List<String>>? names}) {
+      if (statuses.isEmpty) return;
+      stdout
+        ..writeln()
+        ..writeln(style.heading(title));
+      for (final (index, status) in statuses.indexed) {
+        final requirement = status.requirement;
+        final mark = status.skipped
+            ? style.dim('-')
+            : status.ok
+                ? style.success
+                : title == 'Optional'
+                    ? style.warning
+                    : style.failure;
+        final note = [
+          if (names != null) names[index].join(', '),
+          if (requirement.description != null) requirement.description!,
+          if (!status.ok && requirement.install != null) 'install: ${requirement.install}',
+        ].join(' · ');
+        final line =
+            '  $mark ${requirement.tool.padRight(toolWidth)}  ${(requirement.version ?? 'any').padRight(versionWidth)}  '
+            '${found(status).padRight(12)}';
+        stdout.writeln('$line${note.isEmpty ? '' : '  ${style.dim(note)}'}'.trimRight());
+      }
+    }
+
+    stdout.writeln('${style.id(manifest.id)}${style.dim('@')}${style.version('${manifest.version}')} '
+        '${style.bold(style.command(_doctor))}');
+    section('Required by every command', required);
+    section('Required by some commands', commands, names: users);
+    section('Optional', optional);
+    stdout
+      ..writeln()
+      ..writeln(missing == 0
+          ? '${style.success} Everything ${manifest.id} needs is installed.'
+          : '${style.failure} ${style.red('${missing == 1 ? '1 required program is' : '$missing required programs are'} '
+              'missing or outdated.')}');
+    return missing == 0 ? 0 : 1;
   }
 
   Future<int> _agentPrompt(
