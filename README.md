@@ -30,7 +30,7 @@ Windows (PowerShell):
 # latest release
 irm https://raw.githubusercontent.com/balim-eu/tek/main/install.ps1 | iex
 # latest pre-release
-iex "& { $(irm https://raw.githubusercontent.com/balim-eu/tek/main/install.ps1) } pre-release"
+irm https://raw.githubusercontent.com/balim-eu/tek/main/install-pre-release.ps1 | iex
 ```
 
 The [release channels](#release-channels) explain releases and pre-releases. The installer downloads the binary for your system, verifies it against the release's `SHA256SUMS` and installs it to `~/.local/bin/tek`, on Windows to `%LOCALAPPDATA%\tek\bin\tek.exe`. On Linux and macOS it prints the line to add to your shell profile if that directory is not on your `PATH`; on Windows it adds the directory to your user `PATH`. Supported: Linux x64 and arm64, macOS Apple Silicon and Intel, Windows x64.
@@ -39,7 +39,7 @@ The [release channels](#release-channels) explain releases and pre-releases. The
 tek --version
 ```
 
-Options: install a specific release with `... | sh -s -- 2026-10-06` (Windows: `... } 2026-10-06"`), install elsewhere with `... | sudo env TEK_INSTALL_DIR=/usr/local/bin sh` (Windows: set `$env:TEK_INSTALL_DIR` first), or use `wget -qO- <url> | sh` instead of `curl`. See also [manual install](#manual-install), [update](#update) and [uninstall](#uninstall).
+Options: install a specific release with `... | sh -s -- 2026-10-06` (Windows: run `$env:TEK_VERSION = '2026-10-06'` first), install elsewhere with `... | sudo env TEK_INSTALL_DIR=/usr/local/bin sh` (Windows: set `$env:TEK_INSTALL_DIR` first), or use `wget -qO- <url> | sh` instead of `curl`. See also [manual install](#manual-install), [update](#update) and [uninstall](#uninstall).
 
 ## Registries
 
