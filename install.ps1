@@ -10,6 +10,7 @@ $ApiUrl = if ($env:TEK_API_URL) { $env:TEK_API_URL } else { "https://api.github.
 $InstallDir = if ($env:TEK_INSTALL_DIR) { $env:TEK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'tek\bin' }
 $Asset = 'tek-windows-x64.zip'
 
+Remove-Item Env:TEK_VERSION -ErrorAction SilentlyContinue
 if (-not $Version) { $Version = 'latest' }
 if ($Version -eq 'pre-release') {
   $Version = @(Invoke-RestMethod -Uri "$ApiUrl/releases?per_page=1" -UseBasicParsing)[0].tag_name
