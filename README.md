@@ -72,7 +72,7 @@ The token starts with `github_pat_`. If the organization requires approval, tek 
 tek search [query]                               Search the configured registries
 tek info <architecture>                          Show details about an architecture
 tek install <architecture>                       Download, verify and install
-tek list [publisher/name]                        List installed architectures
+tek list [publisher/name] [--pre-release]        List installed architectures and their updates
 tek uninstall <architecture>                     Remove an installed architecture
 tek <architecture> <command>                     Run a command, same as tek run
 tek <architecture> --help                        Show the commands of an architecture
@@ -90,6 +90,7 @@ tek update [--pre-release] [--check]             Update tek itself
 ```
 
 - `tek run` installs the architecture first when needed, `--no-install` only uses installed versions.
+- `tek list` checks the registry each architecture was installed from for a newer version than the newest installed one: releases only, also release candidates (`-rc.N`) with `--pre-release`. `--offline` skips the check.
 - `doctor` exits with 1 when something required is missing.
 - Architectures can print prompts for AI agents, ready to paste, e.g. `tek tek/flutter-app prompt-create-app "Build a shop app" | pbcopy`.
 - Arguments after `--` are passed to the command unchanged.
