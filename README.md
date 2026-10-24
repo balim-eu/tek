@@ -73,6 +73,7 @@ tek search [query]                               Search the configured registrie
 tek info <architecture>                          Show details about an architecture
 tek install <architecture>                       Download, verify and install
 tek list [publisher/name] [--pre-release]        List installed architectures and their updates
+tek upgrade [publisher/name...] [--pre-release]  Upgrade installed architectures to their latest version
 tek uninstall <architecture>                     Remove an installed architecture
 tek <architecture> <command>                     Run a command, same as tek run
 tek <architecture> --help                        Show the commands of an architecture
@@ -91,6 +92,7 @@ tek update [--pre-release] [--check]             Update tek itself
 
 - `tek run` installs the architecture first when needed, `--no-install` only uses installed versions.
 - `tek list` checks the registry each architecture was installed from for a newer version than the newest installed one: releases only, also release candidates (`-rc.N`) with `--pre-release`. `--offline` skips the check.
+- `tek upgrade` installs that newer version of every installed architecture, or of the ones it names, from the same registry: releases only, also release candidates with `--pre-release`, never a downgrade. The older versions stay installed for projects that pin them, `tek uninstall <publisher/name@version>` removes one. Without `@version`, `tek <architecture>` runs the newest installed release, a release candidate only with `@<version>`.
 - `doctor` exits with 1 when something required is missing.
 - Architectures can print prompts for AI agents, ready to paste, e.g. `tek tek/flutter-app prompt-create-app "Build a shop app" | pbcopy`.
 - Arguments after `--` are passed to the command unchanged.

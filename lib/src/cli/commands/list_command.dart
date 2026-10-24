@@ -96,7 +96,7 @@ class ListCommand extends TekCommand {
           'installed ${shown.receipt.installedAt.toLocal().toIso8601String().substring(0, 10)}',
         ].join(' · ');
         out.writeln(style.dim('  $meta'));
-        if (update != null) out.writeln(style.dim('  Update: tek install ${update.reference}'));
+        if (update != null) out.writeln(style.dim('  Upgrade: tek upgrade $id${preRelease ? ' --pre-release' : ''}'));
       }
       final count = byId.length;
       final versionCount = installed.length;
@@ -105,7 +105,8 @@ class ListCommand extends TekCommand {
         ..writeln(style.dim('$count architecture${count == 1 ? '' : 's'} installed'
             '${versionCount != count ? ' ($versionCount versions)' : ''} in ${displayPath(context.home.architecturesDir)}'));
       if (updates.isNotEmpty) {
-        out.writeln('${style.update} ${updates.length} update${updates.length == 1 ? '' : 's'} available');
+        out.writeln('${style.update} ${updates.length} update${updates.length == 1 ? '' : 's'} available, '
+            'upgrade with: tek upgrade${preRelease ? ' --pre-release' : ''}');
       } else if (check != null && check.failures.isEmpty) {
         out.writeln('${style.success} Up to date${preRelease ? ' ${style.dim('(pre-releases included)')}' : ''}');
       }

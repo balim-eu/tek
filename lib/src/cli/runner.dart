@@ -14,6 +14,7 @@ import 'commands/run_command.dart';
 import 'commands/search_command.dart';
 import 'commands/uninstall_command.dart';
 import 'commands/update_command.dart';
+import 'commands/upgrade_command.dart';
 import 'context.dart';
 import 'output.dart';
 
@@ -29,6 +30,7 @@ class TekCommandRunner extends CommandRunner<int> {
     addCommand(RunCommand(context));
     addCommand(RegistryCommand(context));
     addCommand(UpdateCommand(context));
+    addCommand(UpgradeCommand(context));
     addCommand(UninstallCommand(context));
   }
 
