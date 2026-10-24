@@ -81,23 +81,23 @@ class ListCommand extends TekCommand {
           ..writeln(style.dim('Install one with: tek install <publisher/name>'));
         return;
       }
-      for (final (index, MapEntry(key: id, value: versions)) in byId.entries.indexed) {
-        final shown = versions.first;
-        final update = updates[id];
-        if (index > 0) out.writeln();
-        final others = versions.skip(1).map((v) => '${v.version}').join(', ');
-        out.writeln(
-            '${style.id(id)} ${style.version('${shown.version}')}${others.isEmpty ? '' : style.dim(', $others')}'
-            '${update == null ? '' : '  ${style.update} ${style.version('${update.versionNumber}')} available'}');
-        if (shown.manifest.description != null) out.writeln('  ${shown.manifest.description}');
-        final meta = [
-          'commands ${shown.manifest.commands.keys.join(', ')}',
-          if (shown.receipt.registry != null) 'registry ${shown.receipt.registry}',
-          'installed ${shown.receipt.installedAt.toLocal().toIso8601String().substring(0, 10)}',
-        ].join(' · ');
-        out.writeln(style.dim('  $meta'));
-        if (update != null) out.writeln(style.dim('  Upgrade: tek upgrade $id${preRelease ? ' --pre-release' : ''}'));
+      final rows = <List<Cell>>[];
+      for (final MapEntry(key: id, value: versions) in byId.entries) {
+        final newest = '${versions.first.version}';
+        final more = versions.length > 3 ? ' +${versions.length - 3}' : '';
+        final shown = [for (final v in versions.take(3)) '${v.version}'].join(', ') + more;
+        final update = updates[id]?.versionNumber;
+        final registry = versions.first.receipt.registry ?? '';
+        final installed = versions.first.receipt.installedAt.toLocal().toIso8601String().substring(0, 10);
+        rows.add([
+          (id, style.id(id)),
+          (shown, '${style.version(newest)}${style.dim(shown.substring(newest.length))}'),
+          if (check != null) update == null ? ('', '') : ('↑ $update', '${style.update} ${style.version('$update')}'),
+          (registry, registry),
+          (installed, style.dim(installed)),
+        ]);
       }
+      writeColumns(out, style, ['ARCHITECTURE', 'VERSION', if (check != null) 'UPDATE', 'REGISTRY', 'INSTALLED'], rows);
       final count = byId.length;
       final versionCount = installed.length;
       out

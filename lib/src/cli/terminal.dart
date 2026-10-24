@@ -58,6 +58,9 @@ class Style {
   String get arrow => dim('→');
 }
 
+/// The width of the terminal stdout writes to, null when it writes to a file or a pipe.
+int? terminalWidth() => stdout.hasTerminal ? stdout.terminalColumns : null;
+
 String displayPath(String path) {
   final home = Platform.isWindows ? Platform.environment['USERPROFILE'] : Platform.environment['HOME'];
   if (home == null || home.isEmpty) return path;

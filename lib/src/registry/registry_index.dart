@@ -126,10 +126,10 @@ class RegistryArchitecture {
     return null;
   }
 
+  /// Whether [id] contains every word of [query], ignoring case, e.g. "api" or "tek flutter".
   bool matches(String query) {
     final terms = query.toLowerCase().split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
-    final haystack = [id, description ?? '', ...keywords].join(' ').toLowerCase();
-    return terms.every(haystack.contains);
+    return terms.every(id.toLowerCase().contains);
   }
 }
 

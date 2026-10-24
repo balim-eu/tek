@@ -69,7 +69,7 @@ The token starts with `github_pat_`. If the organization requires approval, tek 
 ## Commands
 
 ```text
-tek search [query]                               Search the configured registries
+tek search [query]                               List the architectures, or those whose name contains the query
 tek info <architecture>                          Show details about an architecture
 tek install <architecture>                       Download, verify and install
 tek list [publisher/name] [--pre-release]        List installed architectures and their updates
@@ -90,8 +90,9 @@ tek registry remove <name>                       Remove a registry and its crede
 tek update [--pre-release] [--check]             Update tek itself
 ```
 
+- `tek search` lists every architecture of the configured registries with its latest version and what it is, `tek search <query>` only those whose name contains the query, ignoring case, e.g. `tek search api` or `tek search tek/flutter`. `tek info <architecture>` shows its versions and commands.
 - `tek run` installs the architecture first when needed, `--no-install` only uses installed versions.
-- `tek list` checks the registry each architecture was installed from for a newer version than the newest installed one: releases only, also release candidates (`-rc.N`) with `--pre-release`. `--offline` skips the check.
+- `tek list` shows every installed architecture with its installed versions, newest first, the registry and the day it was installed. It checks the registry each architecture was installed from for a newer version than the newest installed one: releases only, also release candidates (`-rc.N`) with `--pre-release`. `--offline` skips the check.
 - `tek upgrade` installs that newer version of every installed architecture, or of the ones it names, from the same registry: releases only, also release candidates with `--pre-release`, never a downgrade. The older versions stay installed for projects that pin them, `tek uninstall <publisher/name@version>` removes one. Without `@version`, `tek <architecture>` runs the newest installed release, a release candidate only with `@<version>`.
 - `doctor` exits with 1 when something required is missing.
 - Architectures can print prompts for AI agents, ready to paste, e.g. `tek tek/flutter-app prompt-create-app "Build a shop app" | pbcopy`.
