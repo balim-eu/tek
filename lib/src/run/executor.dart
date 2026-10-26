@@ -24,6 +24,7 @@ class Executor {
     String command,
     List<String> args, {
     Map<String, String> environment = const {},
+    String? workingDirectory,
   }) async {
     await _prepare(architecture, command);
     final process = await _start(
@@ -33,6 +34,7 @@ class Executor {
       environment,
       json: false,
       mode: ProcessStartMode.inheritStdio,
+      workingDirectory: workingDirectory,
     );
     final subscriptions = <StreamSubscription<ProcessSignal>>[];
     if (!Platform.isWindows) {
@@ -54,6 +56,7 @@ class Executor {
     String command,
     List<String> args, {
     Map<String, String> environment = const {},
+    String? workingDirectory,
   }) async {
     await _prepare(architecture, command);
     final process = await _start(
@@ -63,6 +66,7 @@ class Executor {
       environment,
       json: true,
       mode: ProcessStartMode.normal,
+      workingDirectory: workingDirectory,
     );
     unawaited(process.stdin.close());
     final output = process.stdout.transform(utf8.decoder).join();
@@ -92,6 +96,7 @@ class Executor {
     Map<String, String> parameters, {
     required bool json,
     required ProcessStartMode mode,
+    String? workingDirectory,
   }) async {
     final environment = {
       ...parameters,
@@ -109,6 +114,7 @@ class Executor {
         args,
         environment: environment,
         mode: mode,
+        workingDirectory: workingDirectory,
       );
     } on ProcessException catch (e) {
       throw TekException(

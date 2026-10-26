@@ -9,7 +9,7 @@ const supportedRegistrySchemaVersion = 2;
 final _sha256 = RegExp(r'^[0-9a-f]{64}$');
 
 class RegistryIndex {
-  const RegistryIndex({required this.schemaVersion, required this.architectures, this.auth});
+  const RegistryIndex({required this.schemaVersion, required this.architectures, this.auth, this.tools = const {}});
 
   factory RegistryIndex.fromJson(Object? json, {required Uri source}) {
     final reader = _Reader(source);
@@ -30,10 +30,13 @@ class RegistryIndex {
       }
       architectures[architecture.id] = architecture;
     }
+    final tools = root['tools'];
+    if (tools != null && tools is! Map) reader.fail('tools must be an object of tools by name');
     return RegistryIndex(
       schemaVersion: schemaVersion,
       architectures: architectures.values.toList(),
       auth: root['auth'] == null ? null : _auth(root['auth'], reader),
+      tools: tools == null ? const {} : (tools as Map).cast<String, Object?>(),
     );
   }
 
@@ -59,6 +62,9 @@ class RegistryIndex {
   final int schemaVersion;
   final List<RegistryArchitecture> architectures;
   final AuthInfo? auth;
+
+  /// The registry's tools by name, as tools/<name>.yaml describes each, read by ToolCatalog.
+  final Map<String, Object?> tools;
 
   RegistryArchitecture? find(String id) {
     for (final architecture in architectures) {

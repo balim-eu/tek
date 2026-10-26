@@ -9,9 +9,12 @@ import '../version.dart';
 import 'commands/info_command.dart';
 import 'commands/install_command.dart';
 import 'commands/list_command.dart';
+import 'commands/path_command.dart';
 import 'commands/registry_command.dart';
 import 'commands/run_command.dart';
 import 'commands/search_command.dart';
+import 'commands/setup_command.dart';
+import 'commands/shellenv_command.dart';
 import 'commands/uninstall_command.dart';
 import 'commands/update_command.dart';
 import 'commands/upgrade_command.dart';
@@ -32,6 +35,9 @@ class TekCommandRunner extends CommandRunner<int> {
     addCommand(UpdateCommand(context));
     addCommand(UpgradeCommand(context));
     addCommand(UninstallCommand(context));
+    addCommand(SetupCommand(context));
+    addCommand(ShellenvCommand(context));
+    addCommand(PathCommand(context));
   }
 
   final TekContext context;

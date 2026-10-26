@@ -15,15 +15,58 @@ class UninstallCommand extends TekCommand {
   String get name => 'uninstall';
 
   @override
-  String get description => 'Remove an installed architecture from disk.';
+  String get description => 'Remove one or more installed architectures from disk; their tools stay installed.';
 
   @override
-  String get invocation => 'tek uninstall <publisher/name[@version]>';
+  String get invocation => 'tek uninstall <publisher/name[@version]>...';
 
   @override
   Future<int> run() async {
-    final input = argument(0, 'publisher/name[@version]');
-    expectArguments(1);
+    argument(0, 'publisher/name[@version]');
+    final results = <Map<String, Object?>>[];
+    final failures = <TekException>[];
+    for (final input in rest) {
+      try {
+        results.add(await _uninstall(input));
+      } on TekException catch (e) {
+        if (e.code != ErrorCodes.notInstalled) rethrow;
+        failures.add(e);
+      }
+    }
+    if (results.isEmpty && failures.length == 1) throw failures.single;
+    final style = output.style;
+    final data = results.length == 1 && failures.isEmpty
+        ? results.single
+        : {
+            'architectures': results,
+            if (failures.isNotEmpty) 'notInstalled': [for (final failure in failures) failure.toJson()],
+          };
+    if (output.json) {
+      output.result({'ok': failures.isEmpty, ...data});
+    } else {
+      for (final result in results) {
+        final id = result['architecture'] as String;
+        final versions = result['versions'] as List<String>;
+        if (versions.isEmpty) stdout.writeln('${style.success} Uninstalled ${style.id(id)}');
+        for (final version in versions) {
+          stdout.writeln('${style.success} Uninstalled ${style.id(id)}${style.dim('@')}${style.version(version)}');
+        }
+        for (final path in result['removed'] as List<String>) {
+          stdout.writeln(style.dim('  Removed ${displayPath(path)}'));
+        }
+        final remaining = result['remaining'] as List<String>;
+        if (remaining.isNotEmpty) {
+          stdout.writeln(style.dim('  Still installed: ${remaining.map((v) => '$id@$v').join(', ')}'));
+        }
+      }
+      for (final failure in failures) {
+        output.error(failure);
+      }
+    }
+    return failures.isEmpty ? 0 : 1;
+  }
+
+  Future<Map<String, Object?>> _uninstall(String input) async {
     final ref = ArchitectureRef.parse(input);
     final home = context.home;
     final architectureDir = Directory(home.architectureDir(ref.id));
@@ -69,26 +112,12 @@ class UninstallCommand extends TekCommand {
     }
     await _deleteIfEmpty(architectureDir.parent);
     final remaining = installed.where((v) => !versions.contains(v)).toList();
-
-    output.success({
+    return {
       'architecture': ref.id,
       'versions': [for (final v in versions) '$v'],
       'removed': removed,
       'remaining': [for (final v in remaining) '$v'],
-    }, (out) {
-      final style = output.style;
-      if (versions.isEmpty) out.writeln('${style.success} Uninstalled ${style.id(ref.id)}');
-      for (final version in versions) {
-        out.writeln('${style.success} Uninstalled ${style.id(ref.id)}${style.dim('@')}${style.version('$version')}');
-      }
-      for (final path in removed) {
-        out.writeln(style.dim('  Removed ${displayPath(path)}'));
-      }
-      if (remaining.isNotEmpty) {
-        out.writeln(style.dim('  Still installed: ${remaining.map((v) => '${ref.id}@$v').join(', ')}'));
-      }
-    });
-    return 0;
+    };
   }
 
   Future<void> _deleteIfEmpty(Directory dir) async {

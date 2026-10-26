@@ -40,13 +40,16 @@ tek registry add balim-eu https://raw.githubusercontent.com/balim-eu/tek-registr
 
 tek asks for a token or a username and password when the registry needs one. See [registries](#registries) for the available registries.
 
-### 3. Run an architecture
+### 3. Set an architecture up and create a project
 
 ```bash
 tek search
-tek tek/flutter-app doctor
+tek tek/flutter-app install-tools                  # the software it needs, e.g. Flutter with fvm, melos, Chrome
 tek tek/flutter-app create my_app --name my_app --org com.example --development-team ABCDE12345
+cd my_app && tek setup                             # the project's dependencies, generated code
 ```
+
+`install-tools` installs what is missing on this machine with the system's package manager or the vendor's installer, on macOS and Linux, and makes it visible to new shells. `create` writes the files and the project's `tek.yaml`, which `tek setup` reads, also in a fresh clone.
 
 ## Registries
 
@@ -71,16 +74,20 @@ The token starts with `github_pat_`. If the organization requires approval, tek 
 ```text
 tek search [query]                               List the architectures, or those whose name contains the query
 tek info <architecture>                          Show details about an architecture
-tek install <architecture>                       Download, verify and install
+tek install <architecture>...                    Download, verify and install one or more architectures
 tek list [publisher/name] [--pre-release]        List installed architectures and their updates
 tek upgrade [publisher/name...] [--pre-release]  Upgrade installed architectures to their latest version
-tek uninstall <architecture>                     Remove an installed architecture
+tek uninstall <architecture>...                  Remove installed architectures, their tools stay
 tek <architecture> <command>                     Run a command, same as tek run
 tek <architecture> --help                        Show the commands of an architecture
 tek <architecture> <command> --help              Show the arguments and options of a command
 tek <architecture> --help-ai                     Same as Markdown for AI agents
 tek <architecture> <command> --help-ai           Same as Markdown, with the command's guide and examples
 tek <architecture> doctor                        Check the software an architecture needs
+tek <architecture> install-tools                 Install the software it needs that is missing, asking once
+tek setup [directory]                            Set a project up with the architecture of its tek.yaml
+tek shellenv [zsh|bash|sh|fish|pwsh|dockerfile]  Print PATH and the variables of the tools tek installed
+tek path [--remove]                              List PATH by tek, system and yours, or undo tek's changes
 tek <architecture> --version                     Show the version of an architecture
 tek registry list                                List the configured registries
 tek registry add [name] <url>                    Add or update a registry, asks for credentials if needed
@@ -94,7 +101,8 @@ tek update [--pre-release] [--check]             Update tek itself
 - `tek run` installs the architecture first when needed, `--no-install` only uses installed versions.
 - `tek list` shows every installed architecture with its installed versions, newest first, the registry and the day it was installed. It checks the registry each architecture was installed from for a newer version than the newest installed one: releases only, also release candidates (`-rc.N`) with `--pre-release`. `--offline` skips the check.
 - `tek upgrade` installs that newer version of every installed architecture, or of the ones it names, from the same registry: releases only, also release candidates with `--pre-release`, never a downgrade. The older versions stay installed for projects that pin them, `tek uninstall <publisher/name@version>` removes one. Without `@version`, `tek <architecture>` runs the newest installed release, a release candidate only with `@<version>`.
-- `doctor` exits with 1 when something required is missing.
+- `doctor` exits with 1 when something required is missing. Every command checks what it needs first and names `install-tools` when something is missing.
+- `install-tools` takes `--with <target|tool>` for optional tools, e.g. `--with android,ios`, `--optional` for all of them, `--yes` to install without asking and `--dry-run` to print the steps for this machine. It installs the architecture first when it isn't installed.
 - Architectures can print prompts for AI agents, ready to paste, e.g. `tek tek/flutter-app prompt-create-app "Build a shop app" | pbcopy`.
 - Arguments after `--` are passed to the command unchanged.
 - Every command accepts `--json`.
@@ -189,7 +197,18 @@ On Windows, `~` is `%USERPROFILE%`.
 | `~/.tek/credentials.json`                     | `tek registry add`, `tek registry login`  | `tek registry logout`, `tek registry remove` |
 | `~/.tek/tmp/`, `.tek.tmp` next to the binary  | `tek install`, installer, `tek update`    | right after use               |
 
-Shell profiles are never modified.
+| `~/.tek/tools.json`                           | the registry's tools, cached by `tek install`, `install-tools` | you |
+| `~/.tek/path.json`                            | `install-tools`, the folders and variables it made visible | `tek path --remove` |
+| one line in `~/.zshrc`, `~/.bashrc`, `~/.profile`, `~/.bash_profile` | `install-tools`, when a tool's folder isn't on PATH | `tek path --remove` |
+| links in `/usr/local/bin`, `/etc/profile.d/tek.sh` | `install-tools` as root               | `tek path --remove`           |
+
+### Tools
+
+An architecture's manifest names the tools it needs in `runtime`, required ones and optional ones by target; the registry's `tools/<name>.yaml` describes how each installs on every system: Homebrew on macOS, apt on Ubuntu and Debian, dnf on Amazon Linux and the RHEL family, or the vendor's repository or installer. tek prepares the system first, Homebrew on macOS and the base packages on Linux, runs the steps that need root directly as root or through sudo, and checks every tool after its last step.
+
+A tool whose folder isn't on PATH, e.g. `~/.cargo/bin`, goes into `~/.tek/path.json`, and tek writes one line into the shell profiles, `[ -x "$HOME/.local/bin/tek" ] && eval "$("$HOME/.local/bin/tek" shellenv)"`, which adds the recorded folders after yours. As root it links the programs into `/usr/local/bin` instead; in GitHub Actions it appends to `$GITHUB_PATH` and `$GITHUB_ENV`. tek's own commands see every tool right away. In a Dockerfile, `RUN tek <architecture> install-tools --yes`, then `tek shellenv dockerfile` prints the `ENV` lines.
+
+Supported: macOS 15 and later, Ubuntu 22.04 and 24.04, Debian 12 and 13, Amazon Linux 2023, each on x64 and arm64; Windows through WSL2 with Ubuntu. Xcode asks for an Apple ID once, as Apple requires.
 
 ## Development
 

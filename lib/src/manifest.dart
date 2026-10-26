@@ -6,14 +6,16 @@ import 'package:yaml/yaml.dart';
 
 import 'architecture_ref.dart';
 import 'errors.dart';
+import 'runtime/tool.dart';
 
-const supportedManifestSchemaVersion = 2;
+const supportedManifestSchemaVersion = 3;
+const oldestManifestSchemaVersion = 2;
 
 final _commandName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _parameterName = RegExp(r'^[a-z][a-z0-9-]*$');
 final _environmentName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 const _reservedOptions = {'help', 'help-ai', 'json'};
-const _reservedCommands = {'doctor', 'version'};
+const _reservedCommands = {'doctor', 'version', 'install-tools'};
 const operatingSystems = {'linux', 'macos', 'windows'};
 
 enum ValueType {
@@ -48,14 +50,40 @@ class ManifestPublisher {
 }
 
 class Requirement {
-  const Requirement({required this.tool, this.version, this.command, this.install, this.description, this.os});
+  const Requirement({
+    required this.tool,
+    this.version,
+    this.command,
+    this.install,
+    this.installSteps,
+    this.description,
+    this.os,
+    this.targets = const [],
+    this.toolName,
+    this.bin,
+    this.env,
+  });
 
+  /// The program the architecture needs, e.g. cargo; the registry's tool that provides it installs it.
   final String tool;
   final String? version;
   final String? command;
+
+  /// How to install it as a hint for a person, e.g. a URL, when it is a string in the manifest.
   final String? install;
+
+  /// The install matrix that overrides the tool's, when it is one in the manifest.
+  final Map<String, List<InstallStep>>? installSteps;
   final String? description;
   final List<String>? os;
+
+  /// The targets an optional tool serves, e.g. android, which install-tools --with android installs.
+  final List<String> targets;
+
+  /// The registry tool that provides [tool], when its name differs.
+  final String? toolName;
+  final Map<String, List<String>>? bin;
+  final Map<String, Map<String, String>>? env;
 
   bool get appliesHere => os == null || os!.contains(Platform.operatingSystem);
 
@@ -70,6 +98,8 @@ class Requirement {
         if (install != null) 'install': install,
         if (description != null) 'description': description,
         if (os != null) 'os': os,
+        if (targets.isNotEmpty) 'for': targets,
+        if (toolName != null) 'registryTool': toolName,
       };
 }
 
@@ -249,7 +279,7 @@ class Manifest {
     if (schemaVersion is! int || schemaVersion < 1) {
       throw _invalid('Manifest schemaVersion must be a positive integer$where.');
     }
-    if (schemaVersion < supportedManifestSchemaVersion) {
+    if (schemaVersion < oldestManifestSchemaVersion) {
       throw _invalid('Manifest schemaVersion $schemaVersion is no longer supported, architectures use schemaVersion '
           '$supportedManifestSchemaVersion$where.');
     }
@@ -314,8 +344,8 @@ class Manifest {
     final runtime = document['runtime'];
     if (runtime != null) {
       if (runtime is! YamlMap) throw _invalid('Manifest runtime must be a mapping$where.');
-      requirements.addAll(_parseRequirements(runtime['required'], 'runtime.required', where));
-      optionalRequirements.addAll(_parseRequirements(runtime['optional'], 'runtime.optional', where));
+      requirements.addAll(_parseRequirements(runtime['required'], 'runtime.required', where, optional: false));
+      optionalRequirements.addAll(_parseRequirements(runtime['optional'], 'runtime.optional', where, optional: true));
     }
 
     return Manifest(
@@ -380,6 +410,14 @@ class Manifest {
           'required': {for (final r in requirements) r.tool: r.version ?? 'any'},
           if (optionalRequirements.isNotEmpty)
             'optional': {for (final r in optionalRequirements) r.tool: r.version ?? 'any'},
+          if (optionalRequirements.any((r) => r.targets.isNotEmpty))
+            'targets': {
+              for (final target in {for (final r in optionalRequirements) ...r.targets})
+                target: [
+                  for (final r in optionalRequirements)
+                    if (r.targets.contains(target)) r.tool
+                ],
+            },
         },
       };
 
@@ -477,7 +515,7 @@ class Manifest {
       aliases: aliases,
       arguments: arguments,
       options: options,
-      requires: _parseRequirements(node['requires'], '$context requires', where),
+      requires: _parseRequirements(node['requires'], '$context requires', where, optional: false),
       examples: examples,
       optionsFirst: _bool(node['optionsFirst'], false, '$context optionsFirst', where),
       os: _parseOs(node['os'], '$context os', where),
@@ -597,24 +635,62 @@ class Manifest {
     return values;
   }
 
-  static List<Requirement> _parseRequirements(Object? node, String context, String where) {
+  static List<Requirement> _parseRequirements(Object? node, String context, String where, {required bool optional}) {
     if (node == null) return const [];
     if (node is! YamlMap) throw _invalid('Manifest $context must be a mapping$where.');
     return [
       for (final entry in node.entries)
         switch (entry.value) {
           null => Requirement(tool: '${entry.key}'),
-          final YamlMap value => Requirement(
-              tool: '${entry.key}',
-              version: _optionalString(value, 'version', where),
-              command: _optionalString(value, 'command', where),
-              install: _optionalString(value, 'install', where),
-              description: _optionalString(value, 'description', where)?.trim(),
-              os: _parseOs(value['os'], '$context ${entry.key} os', where),
-            ),
+          final YamlMap value =>
+            _requirement('${entry.key}', value, '$context ${entry.key}', where, optional: optional),
           final Object value => Requirement(tool: '${entry.key}', version: '$value'),
         },
     ];
+  }
+
+  static Requirement _requirement(String key, YamlMap value, String context, String where, {required bool optional}) {
+    const known = {'version', 'command', 'install', 'description', 'os', 'for', 'tool', 'bin', 'env'};
+    for (final field in value.keys) {
+      if (!known.contains(field)) throw _invalid('Manifest $context has the unknown field "$field"$where.');
+    }
+    final targets = value['for'];
+    if (targets != null && !optional) {
+      throw _invalid('Manifest $context: for names the targets of an optional tool, it belongs under runtime.optional'
+          '$where.');
+    }
+    if (targets != null && (targets is! YamlList || targets.isEmpty || targets.any((t) => t is! String))) {
+      throw _invalid('Manifest $context for must be a list of targets, e.g. [android]$where.');
+    }
+    final install = value['install'];
+    if (install != null && install is! String && install is! YamlMap) {
+      throw _invalid('Manifest $context install must be a hint or an install matrix$where.');
+    }
+    final version = _optionalString(value, 'version', where);
+    if (version != null && version != 'any' && version != '*') {
+      try {
+        VersionConstraint.parse(version);
+      } on FormatException {
+        throw _invalid('Manifest $context version "$version" is not a version constraint, e.g. ">=17.0.0"$where.');
+      }
+    }
+    try {
+      return Requirement(
+        tool: key,
+        version: version,
+        command: _optionalString(value, 'command', where),
+        install: install is String ? install : null,
+        installSteps: install is YamlMap ? ToolDefinition.parseInstall(install, '$context install') : null,
+        description: _optionalString(value, 'description', where)?.trim(),
+        os: _parseOs(value['os'], '$context os', where),
+        targets: targets == null ? const [] : [for (final t in targets as YamlList) '$t'],
+        toolName: _optionalString(value, 'tool', where),
+        bin: value['bin'] == null ? null : ToolDefinition.parseBin(value['bin'], '$context bin'),
+        env: value['env'] == null ? null : ToolDefinition.parseEnv(value['env'], '$context env'),
+      );
+    } on FormatException catch (e) {
+      throw _invalid('Manifest ${e.message}$where.');
+    }
   }
 
   static TekException _invalid(String message) => TekException(ErrorCodes.invalidManifest, message);

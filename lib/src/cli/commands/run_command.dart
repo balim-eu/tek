@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:path/path.dart' as p;
 
 import '../../architecture_ref.dart';
 import '../../errors.dart';
@@ -10,7 +11,10 @@ import '../../manifest.dart';
 import '../../run/ai_help.dart';
 import '../../run/command_line.dart';
 import '../../run/built_in_commands.dart';
-import '../../run/requirements.dart';
+import '../../runtime/checker.dart';
+import '../../runtime/project.dart';
+import '../terminal.dart';
+import 'install_tools.dart';
 import 'tek_command.dart';
 
 const _helpFlags = {'--help', '-h'};
@@ -62,6 +66,7 @@ class RunCommand extends TekCommand {
     if (args.first == '--$_version' || args.first == _version)
       return _architectureVersion(manifest, local, args.skip(1));
     if (args.first == _doctor) return _checkSoftware(ref, manifest, args.skip(1).toList());
+    if (args.first == installToolsCommand) return _installTools(ref, manifest, local, args.skip(1).toList());
 
     final command = manifest.command(args.first);
     if (command == null) {
@@ -113,24 +118,44 @@ class RunCommand extends TekCommand {
           registry: argResults!.option('registry'),
           install: argResults!.flag('install'),
         );
-    await RequirementChecker().check('${architecture.reference} $commandName', requirements);
+    final checker = await context.toolChecker();
+    final statuses = await Future.wait(requirements.map(checker.inspect));
+    final problems = [
+      for (final status in statuses)
+        if (status.problem case final problem?) problem
+    ];
+    if (problems.isNotEmpty) {
+      throw TekException(
+        ErrorCodes.requirementsNotMet,
+        '${architecture.reference} $commandName needs:\n${problems.map((problem) => '  - $problem').join('\n')}',
+        hint: 'Install what is missing with: tek $ref $installToolsCommand',
+        details: {'problems': problems},
+      );
+    }
+    final environment = {
+      ...parsed.environment,
+      ...runtimeEnvironment(checker, [...requirements, ...manifest.optionalRequirements]),
+    };
 
     if (!jsonMode) {
-      return context.executor.runInteractive(
+      final exitCode = await context.executor.runInteractive(
         architecture,
         commandName,
         parsed.passthrough,
-        environment: parsed.environment,
+        environment: environment,
       );
+      if (exitCode == 0) _recordProject(commandName, parsed.parameters, architecture.reference);
+      return exitCode;
     }
 
     final result = await context.executor.runCaptured(
       architecture,
       commandName,
       parsed.passthrough,
-      environment: parsed.environment,
+      environment: environment,
     );
     final ok = result.exitCode == 0;
+    if (ok) _recordProject(commandName, parsed.parameters, architecture.reference);
     output.result({
       'ok': ok,
       'architecture': architecture.id,
@@ -145,6 +170,68 @@ class RunCommand extends TekCommand {
         ).toJson(),
     });
     return result.exitCode;
+  }
+
+  /// After create: the tek.yaml of the new project, which names the architecture and version it was made with.
+  void _recordProject(String command, Map<String, Object?> parameters, String reference) {
+    if (command != 'create') return;
+    final directory = parameters['directory'];
+    if (directory is! String || !Directory(directory).existsSync()) return;
+    ProjectFile.writeArchitecture(directory, reference);
+  }
+
+  Future<int> _installTools(
+    ArchitectureRef ref,
+    Manifest manifest,
+    InstalledArchitecture? local,
+    List<String> args,
+  ) async {
+    final parser = installToolsParser();
+    final ArgResults results;
+    try {
+      results = parser.parse(args);
+    } on FormatException catch (e) {
+      throw TekException(ErrorCodes.usage, e.message, exitCode: 64);
+    }
+    if (results.flag('help')) {
+      output.success({
+        'architecture': manifest.id,
+        'version': '${manifest.version}',
+        'command': installToolsCommand,
+        'usage': 'tek $ref $installToolsCommand [options]',
+      }, (out) {
+        final style = output.style;
+        final targets = {for (final r in manifest.optionalRequirements) ...r.targets};
+        out
+          ..writeln('${style.id(manifest.id)}${style.dim('@')}${style.version('${manifest.version}')} '
+              '${style.bold(style.command(installToolsCommand))}')
+          ..writeln('Install the tools ${manifest.id} needs that are missing on this machine, with the steps of the '
+              'registry for this system, asking once.')
+          ..writeln()
+          ..writeln('${style.heading('Usage:')} tek $ref $installToolsCommand [options]')
+          ..writeln()
+          ..writeln(parser.usage);
+        if (targets.isNotEmpty) {
+          out
+            ..writeln()
+            ..writeln('${style.heading('Targets:')} ${targets.join(', ')}');
+        }
+      });
+      return 0;
+    }
+    if (results.rest.isNotEmpty) {
+      throw TekException(ErrorCodes.usage, '$installToolsCommand takes no arguments, got "${results.rest.join(' ')}".',
+          exitCode: 64);
+    }
+    if (local == null) {
+      await context.ensureInstalled(
+        ref,
+        output: output,
+        registry: argResults!.option('registry'),
+        install: argResults!.flag('install'),
+      );
+    }
+    return InstallTools(context, output).run('$ref', manifest, results);
   }
 
   Future<(Manifest, InstalledArchitecture?)> _manifest(ArchitectureRef ref) async {
@@ -272,7 +359,7 @@ class RunCommand extends TekCommand {
           ..writeln('${style.id(manifest.id)}${style.dim('@')}${style.version('${manifest.version}')} '
               '${style.bold(style.command(_doctor))}')
           ..writeln('Check the software ${manifest.id} needs on this machine: what every command needs, what single '
-              'commands need and what is optional, with the version found and how to install what is missing.')
+              'commands need and what is optional, with the version and the place it was found.')
           ..writeln()
           ..writeln('${style.heading('Usage:')} tek $ref $_doctor');
       });
@@ -290,7 +377,7 @@ class RunCommand extends TekCommand {
         byCommand[key] = (existing, [...commands, command.name]);
       }
     }
-    final checker = RequirementChecker();
+    final checker = await context.toolChecker();
     final [required, commands, optional] = await Future.wait([
       Future.wait(manifest.requirements.map(checker.inspect)),
       Future.wait([for (final (requirement, _) in byCommand.values) checker.inspect(requirement)]),
@@ -298,6 +385,10 @@ class RunCommand extends TekCommand {
     ]);
     final users = [for (final (_, names) in byCommand.values) names];
     final missing = [...required, ...commands].where((status) => !status.ok).length;
+    final optionalMissing = [
+      for (final status in optional)
+        if (!status.ok) status
+    ];
     final data = {
       'ok': missing == 0,
       'architecture': manifest.id,
@@ -319,14 +410,21 @@ class RunCommand extends TekCommand {
         3,
         (width, s) =>
             (s.requirement.version ?? 'any').length > width ? (s.requirement.version ?? 'any').length : width);
-    String found(RequirementStatus status) => switch (status) {
-          RequirementStatus(skipped: true) => 'only on ${status.requirement.os!.join(', ')}',
-          RequirementStatus(found: final String found) when status.ok =>
-            found.contains(Platform.pathSeparator) ? 'installed' : found,
-          RequirementStatus(found: final String found) => 'found $found',
-          _ => 'missing',
+    String found(ToolStatus status) => switch (status.state) {
+          ToolState.skipped =>
+            status.detail ?? 'only on ${(status.requirement.os ?? status.tool?.os ?? const []).join(', ')}',
+          ToolState.ok => [
+              status.version ?? 'installed',
+              if (status.path != null) displayPath(p.dirname(status.path!)),
+              if (!status.onPath) '(off PATH)',
+            ].join('  '),
+          ToolState.outdated =>
+            'found ${status.version}${status.path == null ? '' : ' in ${displayPath(p.dirname(status.path!))}'}',
+          ToolState.failed => 'its check fails',
+          ToolState.unreadable => 'version unreadable',
+          ToolState.missing => 'missing',
         };
-    void section(String title, List<RequirementStatus> statuses, {List<List<String>>? names}) {
+    void section(String title, List<ToolStatus> statuses, {List<List<String>>? names}) {
       if (statuses.isEmpty) return;
       stdout
         ..writeln()
@@ -342,12 +440,13 @@ class RunCommand extends TekCommand {
                     : style.failure;
         final note = [
           if (names != null) names[index].join(', '),
+          if (requirement.targets.isNotEmpty) 'for ${requirement.targets.join(', ')}',
           if (requirement.description != null) requirement.description!,
-          if (!status.ok && requirement.install != null) 'install: ${requirement.install}',
+          if (!status.ok && status.tool == null && requirement.install != null) 'install: ${requirement.install}',
         ].join(' · ');
         final line =
             '  $mark ${requirement.tool.padRight(toolWidth)}  ${(requirement.version ?? 'any').padRight(versionWidth)}  '
-            '${found(status).padRight(12)}';
+            '${found(status)}';
         stdout.writeln('$line${note.isEmpty ? '' : '  ${style.dim(note)}'}'.trimRight());
       }
     }
@@ -357,12 +456,21 @@ class RunCommand extends TekCommand {
     section('Required by every command', required);
     section('Required by some commands', commands, names: users);
     section('Optional', optional);
-    stdout
-      ..writeln()
-      ..writeln(missing == 0
-          ? '${style.success} Everything ${manifest.id} needs is installed.'
-          : '${style.failure} ${style.red('${missing == 1 ? '1 required program is' : '$missing required programs are'} '
-              'missing or outdated.')}');
+    stdout.writeln();
+    if (missing == 0) {
+      stdout.writeln('${style.success} Everything ${manifest.id} needs is installed.');
+    } else {
+      stdout
+        ..writeln(
+            '${style.failure} ${style.red('${missing == 1 ? '1 required program is' : '$missing required programs are'} '
+                'missing or outdated.')}')
+        ..writeln('  Install ${missing == 1 ? 'it' : 'them'} with: tek $ref $installToolsCommand');
+    }
+    final targets = {for (final status in optionalMissing) ...status.requirement.targets};
+    if (optionalMissing.isNotEmpty) {
+      stdout.writeln(style.dim('  Optional ones with: tek $ref $installToolsCommand '
+          '${targets.isEmpty ? '--optional' : '--with ${targets.join(',')}'}'));
+    }
     return missing == 0 ? 0 : 1;
   }
 

@@ -2,6 +2,7 @@ import '../manifest.dart';
 
 List<(String, String)> builtInCommands(Manifest manifest) => [
       ('doctor', 'Check the software ${manifest.id} needs on this machine.'),
+      ('install-tools', 'Install the software ${manifest.id} needs that is missing on this machine.'),
       ('version', 'Show the version of ${manifest.id}.'),
     ];
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 import 'package:tek/src/errors.dart';
 import 'package:tek/src/host.dart';
 import 'package:tek/src/install/installed_architecture.dart';
@@ -27,12 +29,27 @@ class _Version {
 }
 
 void main(List<String> arguments) {
-  if (arguments.length != 2) {
-    stderr.writeln('Usage: dart run tool/dev_registry.dart <registry repository> <out>');
+  final parser = ArgParser()
+    ..addMultiOption('platform', help: 'Platforms to compile for, e.g. linux-arm64; this machine when left out.')
+    ..addMultiOption('only', help: 'Only these architectures, as publisher/name or publisher/name@version.');
+  final ArgResults args;
+  try {
+    args = parser.parse(arguments);
+  } on FormatException catch (e) {
+    stderr.writeln(e.message);
     exit(64);
   }
-  final source = Directory(p.absolute(arguments[0]));
-  final out = Directory(p.absolute(arguments[1]));
+  if (args.rest.length != 2) {
+    stderr
+      ..writeln('Usage: dart run tool/dev_registry.dart <registry repository> <out> [--platform <os>-<arch>]... '
+          '[--only <id>[@<version>]]...')
+      ..writeln(parser.usage);
+    exit(64);
+  }
+  final platforms = args.multiOption('platform').isEmpty ? [hostPlatform] : args.multiOption('platform');
+  final only = args.multiOption('only');
+  final source = Directory(p.absolute(args.rest[0]));
+  final out = Directory(p.absolute(args.rest[1]));
   final architectures = Directory(p.join(source.path, 'architectures'));
   if (!architectures.existsSync()) {
     stderr.writeln('${source.path} is not a tek registry repository (no architectures folder).');
@@ -63,6 +80,7 @@ void main(List<String> arguments) {
     }
     final files = _packageFiles(file.parent);
     if (files.containsKey(installReceiptFile)) problems.add('$location: $installReceiptFile is reserved.');
+    if (only.isNotEmpty && !only.contains('$publisher/$name') && !only.contains('$publisher/$name@$version')) continue;
     versions.add(_Version(publisher, name, version, files));
   }
   if (problems.isNotEmpty) {
@@ -79,10 +97,15 @@ void main(List<String> arguments) {
   for (final version in versions) {
     final assets = Directory(p.join(out.path, version.tag))..createSync(recursive: true);
     version.files['manifest.yaml']!.copySync(p.join(assets.path, 'manifest.yaml'));
-    final name = 'run-$hostPlatform${Platform.isWindows ? '.exe' : ''}';
-    final built = _compile(version, name, cache);
-    final checksum = sha256.convert(built.readAsBytesSync()).toString();
-    built.copySync(p.join(assets.path, name));
+    final artifacts = <String, Object?>{};
+    for (final platform in platforms) {
+      final name = 'run-$platform${platform.startsWith('windows') ? '.exe' : ''}';
+      final built = _compile(version, name, platform, cache);
+      final checksum = sha256.convert(built.readAsBytesSync()).toString();
+      built.copySync(p.join(assets.path, name));
+      artifacts[platform] = {'url': '${version.tag}/$name', 'sha256': checksum};
+      if (home != null && platform == hostPlatform) _dropStaleInstall(TekHome(home), version, checksum);
+    }
     final architecture = index[version.id] ??= {
       'id': version.id,
       'publisher': version.publisher,
@@ -92,36 +115,51 @@ void main(List<String> arguments) {
     (architecture['versions']! as List<Map<String, Object?>>).add({
       'version': version.version,
       'manifest': '${version.tag}/manifest.yaml',
-      'artifacts': {
-        hostPlatform: {'url': '${version.tag}/$name', 'sha256': checksum},
-      },
+      'artifacts': artifacts,
     });
-    if (home != null) _dropStaleInstall(TekHome(home), version, checksum);
   }
   File(p.join(out.path, 'registry.json')).writeAsStringSync(
-    '${const JsonEncoder.withIndent('  ').convert({'schemaVersion': 2, 'architectures': index.values.toList()})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({
+          'schemaVersion': 2,
+          'architectures': index.values.toList(),
+          'tools': _tools(Directory(p.join(source.path, 'tools'))),
+        })}\n',
   );
   stderr.writeln('Built local registry from ${source.path}: ${versions.map((v) => v.reference).join(', ')}');
 }
 
-File _compile(_Version version, String name, Directory cache) {
+/// The tools of the registry repository, tools/<name>.yaml, as registry.json lists them.
+Map<String, Object?> _tools(Directory directory) {
+  if (!directory.existsSync()) return const {};
+  final files = directory.listSync().whereType<File>().where((f) => f.path.endsWith('.yaml')).toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  return {for (final file in files) p.basenameWithoutExtension(file.path): _plain(loadYaml(file.readAsStringSync()))};
+}
+
+Object? _plain(Object? node) => switch (node) {
+      YamlMap map => {for (final e in map.entries) '${e.key}': _plain(e.value)},
+      YamlList list => [for (final v in list) _plain(v)],
+      _ => node,
+    };
+
+File _compile(_Version version, String name, String platform, Directory cache) {
   final hash = sha256.convert([
     for (final MapEntry(key: path, value: file) in version.files.entries) ...[
       ...utf8.encode(path),
       ...file.readAsBytesSync(),
     ],
   ]);
-  final directory = Directory(p.join(cache.path, '${version.tag}-$hash'));
+  final directory = Directory(p.join(cache.path, '${version.tag}-$platform-$hash'));
   final built = File(p.join(directory.path, name));
   if (built.existsSync()) return built;
   if (cache.existsSync()) {
     for (final stale in cache.listSync().whereType<Directory>()) {
-      if (p.basename(stale.path).startsWith('${version.tag}-')) stale.deleteSync(recursive: true);
+      if (p.basename(stale.path).startsWith('${version.tag}-$platform-')) stale.deleteSync(recursive: true);
     }
   }
   final root = p.dirname(version.files['manifest.yaml']!.path);
-  stderr.writeln('Compiling ${version.reference} for $hostPlatform...');
-  final result = Process.runSync('sh', [p.join(root, 'compile.sh'), directory.path], workingDirectory: root);
+  stderr.writeln('Compiling ${version.reference} for $platform...');
+  final result = Process.runSync('sh', [p.join(root, 'compile.sh'), directory.path, platform], workingDirectory: root);
   if (result.exitCode != 0 || !built.existsSync()) {
     stderr
       ..writeln('error: compiling ${version.reference} failed.')
