@@ -144,8 +144,7 @@ class SetupCommand extends TekCommand {
     return 0;
   }
 
-  /// The folders to set up: the project's own architecture, then every product's, from the product's own tek.yaml or
-  /// its entry in the project's.
+  /// The folders to set up: the project's own architecture, then every product's, from the tek.yaml of its folder.
   List<_Part> _parts(ProjectFile project) {
     final parts = <_Part>[];
     final seen = <String>{};

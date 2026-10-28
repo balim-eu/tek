@@ -9,16 +9,19 @@ const projectFileName = 'tek.yaml';
 
 final _architectureLine = RegExp(r'^architecture:.*$', multiLine: true);
 
-/// A product of a project's tek.yaml, as smileyface/project lists them.
+/// A product of a project's tek.yaml, as smileyface/project lists them: its folder, relative to the project, whose own
+/// tek.yaml names its architecture.
 class ProjectProduct {
-  const ProjectProduct(this.path, this.architecture);
+  const ProjectProduct(this.path, [this.architecture]);
 
   final String path;
+
+  /// The architecture of an entry of before, `{path, architecture}`, for a folder whose tek.yaml names none.
   final String? architecture;
 }
 
 /// tek.yaml: what a project was made with, `architecture: tek/rust-api@0.1.1`, and for a project of several products
-/// the products, each with its path and architecture.
+/// their folders, `products: [shop-api, shop-app]`.
 class ProjectFile {
   const ProjectFile(this.directory, {this.architecture, this.products = const []});
 
@@ -46,7 +49,9 @@ class ProjectFile {
       products: [
         if (products is YamlList)
           for (final product in products)
-            if (product is YamlMap && product['path'] is String)
+            if (product is String)
+              ProjectProduct(product)
+            else if (product is YamlMap && product['path'] is String)
               ProjectProduct(product['path'] as String, product['architecture'] as String?),
       ],
     );
