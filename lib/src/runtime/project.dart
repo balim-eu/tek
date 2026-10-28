@@ -8,6 +8,7 @@ import '../errors.dart';
 const projectFileName = 'tek.yaml';
 
 final _architectureLine = RegExp(r'^architecture:.*$', multiLine: true);
+final _nameLine = RegExp(r'^name:.*$', multiLine: true);
 
 /// A product of a project's tek.yaml, as smileyface/project lists them: its folder, relative to the project, whose own
 /// tek.yaml names its architecture.
@@ -20,8 +21,8 @@ class ProjectProduct {
   final String? architecture;
 }
 
-/// tek.yaml: what a project was made with, `architecture: tek/rust-api@0.1.1`, and for a project of several products
-/// their folders, `products: [shop-api, shop-app]`.
+/// tek.yaml: a project's name and what it was made with, `architecture: tek/rust-api@0.1.1`, and for a project of
+/// several products their folders, `products: [shop-api, shop-app]`.
 class ProjectFile {
   const ProjectFile(this.directory, {this.architecture, this.products = const []});
 
@@ -61,18 +62,22 @@ class ProjectFile {
   final String? architecture;
   final List<ProjectProduct> products;
 
-  /// Writes [reference] as the architecture of the tek.yaml in [directory]: a new file, or the architecture line of an
-  /// existing one, put first when it has none.
+  /// Writes [reference] as the architecture of the tek.yaml in [directory], after its name: a new file named after the
+  /// folder, or the architecture line of an existing one, put after its name, or first when it has none.
   static void writeArchitecture(String directory, String reference) {
     final file = File(p.join(directory, projectFileName));
     final line = 'architecture: $reference';
     if (!file.existsSync()) {
-      file.writeAsStringSync('# What this project was made with; tek setup sets a clone of it up.\n$line\n');
+      file.writeAsStringSync('name: ${p.basename(p.normalize(p.absolute(directory)))}\n$line\n');
       return;
     }
     final text = file.readAsStringSync();
     if (_architectureLine.hasMatch(text)) {
       file.writeAsStringSync(text.replaceFirst(_architectureLine, line));
+      return;
+    }
+    if (_nameLine.hasMatch(text)) {
+      file.writeAsStringSync(text.replaceFirstMapped(_nameLine, (match) => '${match[0]}\n$line'));
       return;
     }
     // After the comments the file starts with, before its first key.

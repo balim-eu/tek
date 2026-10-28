@@ -49,7 +49,7 @@ tek tek/flutter-app create my_app --name my_app --org com.example --development-
 cd my_app && tek setup                             # the project's dependencies, generated code
 ```
 
-`install-tools` installs what is missing on this machine with the system's package manager or the vendor's installer, on macOS and Linux, and makes it visible to new shells. `create` writes the files and the project's `tek.yaml`, which `tek setup` reads, also in a fresh clone.
+`install-tools` installs what is missing on this machine with the system's package manager or the vendor's installer, on macOS and Linux, and makes it visible to new shells. `create` writes the files and the project's `tek.yaml`, its `name` and the `architecture` it was made with, which `tek setup` reads, also in a fresh clone; a project of several products lists their folders under `products`.
 
 ## Registries
 
